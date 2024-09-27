@@ -7,20 +7,22 @@ import datetime,logging,multiprocessing
 from numba import njit,prange,set_num_threads,objmode
 from utils import thread_check,calc_RPN,argmin_and_min,raise_and_log,dtype_shape_check,type_check
 
-def SIS(x,
-        y,
-        score_func,
-        units=None,
-        how_many_to_save=50000,
-        is_use_1=False,
-        max_n_op=5,
-        operators_to_use=["+","-","*","/"],
-        num_threads=None,
-        verbose=True,
-        is_progress=False,
-        log_interval=10,
-        logger=None
-       ):
+def SIS(
+    x,
+    y,
+    score_func,
+    units=None,
+    how_many_to_save=50000,
+    is_use_1=False,
+    max_n_op=5,
+    operators_to_use=["+","-","*","/"],
+    num_threads=None,
+    verbose=True,
+    is_progress=False,
+    log_interval=10,
+    logger=None):
+
+    
     
     Nan_number=-100
 
@@ -63,14 +65,6 @@ def SIS(x,
         units*=2**max_n_op
     if "cbrt" in operators_to_use:
         units*=3**max_n_op
-
-    #if is_use_1:
-    #    base_x=np.ones((x.shape[0]+1,x.shape[1]),dtype="float64")
-    #    base_x[1:]=x
-    #    x=base_x.copy()
-    #    base_units=np.zeros((units.shape[0]+1,units.shape[1]),dtype="int64")
-    #    base_units[1:]=units
-    #    units=base_units.copy()
         
     dict_op_str_to_num={"+":-1,"-":-2,"*":-3,"/":-4,"*-1":-5,"**-1":-6,"**2":-7,
                         "sqrt":-8,"| |":-9,"**3":-10,"cbrt":-11,"**6":-12,"exp":-13,
@@ -110,11 +104,11 @@ def SIS(x,
     time0=datetime.datetime.now()
     for n_op in range(1,max_n_op+1):
         time1=datetime.datetime.now()
-        logger.info(f"n_op={n_op}")
+        logger.info(f"  n_op={n_op}")
         for n_op1 in range(n_op):
             n_op2=n_op-1-n_op1
             loop=loop_counter_binary(n_op1,n_op2,used_eq_dict)
-            logger.info(f"n_op={n_op} binary_op n_op1:n_op2 = {n_op1}:{n_op2},  loop:{loop}")
+            logger.info(f"    binary_op n_op1:n_op2 = {n_op1}:{n_op2},  loop:{loop}")
             time2=datetime.datetime.now()
             if is_progress:
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
@@ -122,13 +116,14 @@ def SIS(x,
                     sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
                                        save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             else:
-                with loop_log(logger,interval=log_interval,tot_loop=loop) as progress:
+                header="      "
+                with loop_log(logger,interval=log_interval,tot_loop=loop,header=header) as progress:
                     sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
                                        save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
-            logger.info(f"time : {datetime.datetime.now()-time2}")
+            logger.info(f"      time : {datetime.datetime.now()-time2}")
         if len(use_unary_op)!=0:
             loop=loop_counter_unary(n_op,used_eq_dict)
-            logger.info(f"n_op={n_op} unary_op,  loop:{loop}")
+            logger.info(f"    unary_op,  loop:{loop}")
             time2=datetime.datetime.now()
             if is_progress:
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
@@ -136,11 +131,12 @@ def SIS(x,
                     sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
                                       save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             else:
-                with loop_log(logger,interval=log_interval,tot_loop=loop) as progress:
+                header="      "
+                with loop_log(logger,interval=log_interval,tot_loop=loop,header=header) as progress:
                     sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
                                       save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
-            logger.info(f"time : {datetime.datetime.now()-time2}")
-        logger.info(f"n_op={n_op} : END, time={datetime.datetime.now()-time1}")
+            logger.info(f"      time : {datetime.datetime.now()-time2}")
+        logger.info(f"    END, time={datetime.datetime.now()-time1}")
     index=np.argsort(save_score_list.ravel())[::-1][:how_many_to_save]
     return_score_list=save_score_list.ravel()[index]
     return_eq_list=save_eq_list.reshape(-1,2*max_n_op+1)[index]

@@ -55,18 +55,25 @@ def SO(
         Number of equations to combine.
         
     num_threads : int
-        Number of CPU cores used.
+        Number of CPU cores used. If not set, all cpu cores are used.
         
     how_many_to_save : int
         Specify how many combinations to save up to the top.
         
     verbose : bool
+        An optional parameter that will be ignored if logger is set.
         Print log or.
         
     is_progress : bool
         Use progress bar or.
-
-    logger : 
+        
+    log_interval : int or float
+        An optional parameter.This will be ignored if is_progress is True.
+        Time interval for writing out progress.
+    
+    logger : logging.Logger
+        A logger instance to handle logging. It is expected to be a standard.
+        Python `logging.Logger` instance.
 
     Returns
     ----------
@@ -130,10 +137,10 @@ def SO(
         with ProgressBar(total=repeat,dynamic_ncols=False,bar_format=bar_format,leave=False) as progress:
             score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_choose_from,progress)
     else:
-        with loop_log(logger,interval=log_interval,tot_loop=repeat) as progress:
+        with loop_log(logger,interval=log_interval,tot_loop=repeat,header="  ") as progress:
             score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_choose_from,progress) 
     dtime=datetime.datetime.now()-time0
-    logger.info(f"END : time={dtime}")
+    logger.info(f"  END : time={dtime}")
     logger.info(f"best : score={score_list[0]},index={index_list[0]}")
     return score_list,index_list
 
