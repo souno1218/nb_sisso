@@ -221,7 +221,7 @@ def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_cho
             for j,k in enumerate(index_arr):
                 selected_X[j]=arr_x[arr_which_arr_to_choose_from[j],k]
             score=score_func(selected_X,y)
-            if score>=border:
+            if np.logical_not(np.isnan(score))&(score>=border):
                 score_list[min_index]=score
                 index_list[min_index]=index_arr
                 border,min_index=argmin_and_min(score_list)

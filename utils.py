@@ -98,8 +98,8 @@ def eq_list_to_num(x,eq_list):
 
 @njit(error_model="numpy",cache=True)#,fastmath=True)
 def calc_RPN(x,equation):
-    Nan_number=-100
-    stack=np.full((np.sum(equation>=0),x.shape[1]),Nan_number,dtype="float64")
+    #Nan_number=-100
+    stack=np.full((np.sum(equation>=0),x.shape[1]),np.nan,dtype="float64")
     last_stack_index=-1
     for i in range(equation.shape[0]):
         last_op=equation[i]
@@ -132,13 +132,13 @@ def calc_RPN(x,equation):
                 case -8:#sqrt
                     # only x>=0
                     if np.any(stack[last_stack_index]<0):
-                        stack[0,0]=Nan_number
+                        stack[0,0]=np.nan
                         return stack[0]
                     stack[last_stack_index]**=0.5
                 case -9:#| |
                     # not all(x>=0),all(x<0)
                     if np.all((stack[last_stack_index,0]*stack[last_stack_index,1:])>=0):
-                        stack[0,0]=Nan_number
+                        stack[0,0]=np.nan
                         return stack[0]
                     stack[last_stack_index]=np.abs(stack[last_stack_index])
                 case -10:#^3
@@ -146,7 +146,7 @@ def calc_RPN(x,equation):
                 case -11:#cbrt
                     # only x>=0
                     if np.any(stack[last_stack_index]<0):
-                        stack[0,0]=Nan_number
+                        stack[0,0]=np.nan
                         return stack[0]
                     stack[last_stack_index]=np.cbrt(stack[last_stack_index])
                 case -12:#^6
@@ -158,7 +158,7 @@ def calc_RPN(x,equation):
                 case -15:#log
                     # only x>=0
                     if np.any(stack[last_stack_index]<0):
-                        stack[0,0]=Nan_number
+                        stack[0,0]=np.nan
                         return stack[0]
                     stack[last_stack_index]=np.log(stack[last_stack_index])
                 case -16:#sin
@@ -170,13 +170,13 @@ def calc_RPN(x,equation):
                 case -100:#END
                     break#None
     if np.any(np.isinf(stack[last_stack_index])):#演算子の意味があるか
-        stack[0,0]=Nan_number
+        stack[0,0]=np.nan
     elif np.any(np.isnan(stack[last_stack_index])):
-        stack[0,0]=Nan_number
+        stack[0,0]=np.nan
     elif is_zero(stack[last_stack_index]):
-        stack[0,0]=Nan_number
+        stack[0,0]=np.nan
     #if is_const(stack[0]):
-        #stack[0,0]=Nan_number
+        #stack[0,0]=np.nan
     return stack[0]
 
 @njit(error_model="numpy",cache=True)#,fastmath=True)

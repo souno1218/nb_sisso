@@ -96,7 +96,7 @@ def SIS(
     save_score_list=np.full((num_threads,how_many_to_save),np.finfo(np.float64).min,dtype="float64")
     save_eq_list=np.full((num_threads,how_many_to_save,2*max_n_op+1),Nan_number,dtype="int8")
     min_index_list=np.zeros(num_threads,dtype="int64")
-    border_list=np.full(num_threads,Nan_number,dtype="float64")
+    border_list=np.full(num_threads,np.finfo(np.float64).min,dtype="float64")
     
     used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict=sub_loop_non_op(x,y,units,is_use_1,
                                                                                   score_func,save_score_list,save_eq_list,min_index_list,border_list)
@@ -255,7 +255,7 @@ def sub_loop_non_op(x,y,units,is_use_1,score_func,save_score_list,save_eq_list,m
         used_shape_id_arr[last_index]=0
         used_info_arr[last_index,0]=i
         last_index+=1
-        if score>=border_list[0]:
+        if np.logical_not(np.isnan(score))&(score>=border_list[0]):
             save_score_list[0,min_index_list[0]]=score
             save_eq_list[0,min_index_list[0],0]=i
             min_index_list[0]=np.argmin(save_score_list[0])
@@ -349,7 +349,7 @@ def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
                                 equation[len_eq1+len_eq2]=merge_op
                                 equation[len_eq1+len_eq2+1:]=Nan_number
                                 ans_num=calc_RPN(x,equation)
-                                if ans_num[0]!=Nan_number:
+                                if np.logical_not(np.isnan(ans_num[0])):
                                     if max_n_op!=n_op:
                                         match merge_op:
                                             case -1:#+
@@ -366,7 +366,7 @@ def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
                                         last_index+=1
                                     if max_id_need_calc[n_binary_op]>eq_id:
                                         score=score_func(ans_num,y)
-                                        if score>=border:
+                                        if np.logical_not(np.isnan(score))&(score>=border):
                                             score_list[min_index]=score
                                             eq_list[min_index,:2*n_op+1]=equation
                                             min_num,min_index=argmin_and_min(score_list)
@@ -523,19 +523,20 @@ def sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
                     if checked:
                         equation[len_base_eq]=op
                         ans_num=calc_RPN(x,equation)
-                        if ans_num[0]!=Nan_number:
-                            if max_n_op!=n_op:
-                                used_unit_arr_thread[thread_id,last_index]=unit
-                                used_eq_arr_thread[thread_id,last_index]=equation
-                                used_shape_id_arr_thread[thread_id,last_index]=0
-                                used_info_arr_thread[thread_id,last_index]=eq_to_num(equation,x_max)
-                                last_index+=1
-                            score=score_func(ans_num,y)#nb_QDA(ans_num,y)
-                            if score>=border:
-                                score_list[min_index]=score
-                                eq_list[min_index,:2*n_op+1]=equation
-                                min_num,min_index=argmin_and_min(score_list)
-                                border=max(min_num,border)
+                        if np.logical_not(np.isnan(ans_num[0])):
+                            score=score_func(ans_num,y)
+                            if np.logical_not(np.isnan(score)):
+                                if max_n_op!=n_op:
+                                    used_unit_arr_thread[thread_id,last_index]=unit
+                                    used_eq_arr_thread[thread_id,last_index]=equation
+                                    used_shape_id_arr_thread[thread_id,last_index]=0
+                                    used_info_arr_thread[thread_id,last_index]=eq_to_num(equation,x_max)
+                                    last_index+=1
+                                if score>=border:
+                                    score_list[min_index]=score
+                                    eq_list[min_index,:2*n_op+1]=equation
+                                    min_num,min_index=argmin_and_min(score_list)
+                                    border=max(min_num,border)
                 progress.update(1)
             save_score_list[thread_id]=score_list
             save_eq_list[thread_id]=eq_list
