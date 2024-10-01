@@ -10,7 +10,7 @@ from utils import thread_check,calc_RPN,argmin_and_min,raise_and_log,dtype_shape
 def SIS(
     x,
     y,
-    score_func,
+    model_score,
     units=None,
     how_many_to_save=50000,
     is_use_1=False,
@@ -86,20 +86,20 @@ def SIS(
     
     logger.info("SIS")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
-    logger.info(f"max_n_op={max_n_op}, score_func={score_func.__name__}, ")
+    logger.info(f"max_n_op={max_n_op}, model_score={model_score.__name__}, ")
     logger.info(f"x.shape={x.shape}, is_use_1={is_use_1}")
     logger.info(f"use_binary_op={use_binary_op}, ")
     logger.info(f"use_unary_op={use_unary_op}")
     str_units=" , ".join([str(units[i]) for i in range(units.shape[0])])
     logger.info(f"units={str_units}")
 
-    save_score_list=np.full((num_threads,how_many_to_save),np.finfo(np.float64).min,dtype="float64")
+    save_score_list=np.full((num_threads,how_many_to_save,2),np.finfo(np.float64).min,dtype="float64")
     save_eq_list=np.full((num_threads,how_many_to_save,2*max_n_op+1),Nan_number,dtype="int8")
     min_index_list=np.zeros(num_threads,dtype="int64")
-    border_list=np.full(num_threads,np.finfo(np.float64).min,dtype="float64")
+    border_list=np.full((num_threads,2),np.finfo(np.float64).min,dtype="float64")
     
     used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict=sub_loop_non_op(x,y,units,is_use_1,
-                                                                                  score_func,save_score_list,save_eq_list,min_index_list,border_list)
+                                                                                  model_score,save_score_list,save_eq_list,min_index_list,border_list)
 
     time0=datetime.datetime.now()
     for n_op in range(1,max_n_op+1):
@@ -113,12 +113,12 @@ def SIS(
             if is_progress:
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
                 with ProgressBar(total=loop,dynamic_ncols=False,bar_format=bar_format,leave=False) as progress:
-                    sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
+                    sub_loop_binary_op(x,y,model_score,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
                                        save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             else:
                 header="      "
                 with loop_log(logger,interval=log_interval,tot_loop=loop,header=header) as progress:
-                    sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
+                    sub_loop_binary_op(x,y,model_score,how_many_to_save,n_op,n_op1,use_binary_op,save_score_list,
                                        save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             logger.info(f"      time : {datetime.datetime.now()-time2}")
         if len(use_unary_op)!=0:
@@ -128,22 +128,23 @@ def SIS(
             if is_progress:
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
                 with ProgressBar(total=loop,dynamic_ncols=False,bar_format=bar_format,leave=False) as progress:
-                    sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
+                    sub_loop_unary_op(x,y,model_score,how_many_to_save,n_op,use_unary_op,
                                       save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             else:
                 header="      "
                 with loop_log(logger,interval=log_interval,tot_loop=loop,header=header) as progress:
-                    sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
+                    sub_loop_unary_op(x,y,model_score,how_many_to_save,n_op,use_unary_op,
                                       save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress)
             logger.info(f"      time : {datetime.datetime.now()-time2}")
         logger.info(f"    END, time={datetime.datetime.now()-time1}")
-    index=np.argsort(save_score_list.ravel())[::-1][:how_many_to_save]
-    return_score_list=save_score_list.ravel()[index]
+    
+    index=np.lexsort((save_score_list[:,:,1].ravel(),save_score_list[:,:,0].ravel()))[::-1][:how_many_to_save]
+    return_score_list=save_score_list.reshape((-1,2))[index]
     return_eq_list=save_eq_list.reshape(-1,2*max_n_op+1)[index]
     logger.info(f"total time={datetime.datetime.now()-time0}")
     return return_score_list,return_eq_list
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def loop_counter_binary(n_op1,n_op2,used_eq_dict):
     loop=0
     for n_binary_op1 in range(n_op1+1):
@@ -152,14 +153,14 @@ def loop_counter_binary(n_op1,n_op2,used_eq_dict):
             loop+=(len_use_eq_arr1*used_eq_dict[n_op2][n_binary_op2].shape[0])
     return loop
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def loop_counter_unary(n_op,used_eq_dict):
     loop=0
     for before_n_binary_op in range(n_op):
         loop+=used_eq_dict[n_op-1][before_n_binary_op].shape[0]
     return loop
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def make_change_x_id(mask,x_max):
     if np.sum(mask)==0:
         return 0
@@ -171,7 +172,7 @@ def make_change_x_id(mask,x_max):
         TF[mask[i]-1]=False
     return return_num
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def eq_to_num(eq,x_max):
     Nan_number=-100
     len_eq=np.sum(eq!=Nan_number)
@@ -181,7 +182,7 @@ def eq_to_num(eq,x_max):
     num=num*(x_max+1)+eq[0]
     return num
     
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def load_preprocessed_results(n_binary_op,n_binary_op1):
     Nan_number=-100
     #back_eq -> make_change_x_id -> changed_back_eq_x_num
@@ -201,14 +202,14 @@ def load_preprocessed_results(n_binary_op,n_binary_op1):
         need_calc_change_x=np.load(f'cache_folder/need_calc_change_x_{n_binary_op}.npz')["arr_0"]
     return preprocessed_results,num_to_index,need_calc_change_x
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def load_max_id_need_calc():
     #max_id_need_calc  :  [n_binary_op]->max_eq_id
     with objmode(max_id_need_calc='int64[:]'):
         max_id_need_calc=np.load("cache_folder/max_id_need_calc.npy")
     return max_id_need_calc
         
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def make_eq_id(n_binary_op1,info):
     n_binary_op=info.shape[0]-1
     arg_sort=np.argsort(info)
@@ -229,8 +230,8 @@ def make_eq_id(n_binary_op1,info):
     shuffled_eq_x_num=make_change_x_id(np.argsort(arg_sort[mask_1])+1,np.sum(mask_1))#ok
     return changed_back_eq_x_num,shuffled_eq_x_num
     
-@njit(error_model="numpy",cache=True)#,fastmath=True)
-def sub_loop_non_op(x,y,units,is_use_1,score_func,save_score_list,save_eq_list,min_index_list,border_list):
+@njit(error_model="numpy")#,fastmath=True)
+def sub_loop_non_op(x,y,units,is_use_1,model_score,save_score_list,save_eq_list,min_index_list,border_list):
     Nan_number=-100
     used_eq_dict=dict()
     used_unit_dict=dict()
@@ -242,6 +243,9 @@ def sub_loop_non_op(x,y,units,is_use_1,score_func,save_score_list,save_eq_list,m
     used_shape_id_arr=np.empty((x.shape[0]+1),dtype="int64")
     used_info_arr=np.empty((x.shape[0]+1,1),dtype="int64")
     last_index=0
+
+    border1,border2=border_list[0]
+    
     if is_use_1:
         used_eq_arr[last_index]=0
         used_unit_arr[last_index]=0
@@ -249,18 +253,40 @@ def sub_loop_non_op(x,y,units,is_use_1,score_func,save_score_list,save_eq_list,m
         used_info_arr[last_index,0]=0
         last_index+=1
     for i in range(1,x.shape[0]+1):
-        score=score_func(x[i-1],y)#nb_LDA(x[i],y)
+        score1,score2=model_score(x[i-1],y)
         used_eq_arr[last_index]=i
         used_unit_arr[last_index]=units[i-1]
         used_shape_id_arr[last_index]=0
         used_info_arr[last_index,0]=i
         last_index+=1
-        if np.logical_not(np.isnan(score))&(score>=border_list[0]):
-            save_score_list[0,min_index_list[0]]=score
-            save_eq_list[0,min_index_list[0],0]=i
-            min_index_list[0]=np.argmin(save_score_list[0])
-            border_list[0]=save_score_list[0,min_index_list[0]]
-
+        if np.logical_not(np.isnan(score1)):
+            if score1>border1:
+                save_score_list[0,min_index_list[0],0]=score1
+                save_score_list[0,min_index_list[0],1]=score2
+                save_eq_list[0,min_index_list[0],0]=i
+                min_num1,min_num2,min_index=argmin_and_min(save_score_list[0])
+                min_index_list[0]=min_index
+                if border1>min_num1:
+                    border1=min_num1
+                    border2=min_num2
+                elif border1==min_num1:
+                    if border2>min_num2:
+                        border2=min_num2
+            elif score1==border1:
+                if score2>border2:
+                    save_score_list[0,min_index_list[0],0]=score1
+                    save_score_list[0,min_index_list[0],1]=score2
+                    save_eq_list[0,min_index_list[0],0]=i
+                    min_num1,min_num2,min_index=argmin_and_min(save_score_list[0])
+                    min_index_list[0]=min_index
+                    if border1>min_num1:
+                        border1=min_num1
+                        border2=min_num2
+                    elif border1==min_num1:
+                        if border2>min_num2:
+                            border2=min_num2
+    border_list[0,0]=border1
+    border_list[0,1]=border2
     used_eq_dict[0]={0:used_eq_arr[:last_index]}
     used_unit_dict[0]={0:used_unit_arr[:last_index]}
     used_shape_id_dict[0]={0:used_shape_id_arr[:last_index]}
@@ -269,8 +295,8 @@ def sub_loop_non_op(x,y,units,is_use_1,score_func,save_score_list,save_eq_list,m
     return used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict
 
 
-@njit(parallel=True,error_model="numpy",cache=True)#,fastmath=True)
-def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
+@njit(parallel=True,error_model="numpy")#,fastmath=True)
+def sub_loop_binary_op(x,y,model_score,how_many_to_save,n_op,n_op1,
                        use_binary_op,save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress):
     Nan_number=-100
 
@@ -317,7 +343,7 @@ def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
                 score_list=save_score_list[thread_id].copy()
                 eq_list=save_eq_list[thread_id].copy()
                 min_index=min_index_list[thread_id]
-                border=border_list[thread_id]
+                border1,border2=border_list[thread_id]
                 last_index=0
                 equation=np.empty((2*n_op+1),dtype="int8")
                 info=np.empty((n_binary_op+1),dtype="int64")
@@ -365,22 +391,46 @@ def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
                                         used_info_arr_thread[thread_id,last_index]=info
                                         last_index+=1
                                     if max_id_need_calc[n_binary_op]>eq_id:
-                                        score=score_func(ans_num,y)
-                                        if np.logical_not(np.isnan(score))&(score>=border):
-                                            score_list[min_index]=score
-                                            eq_list[min_index,:2*n_op+1]=equation
-                                            min_num,min_index=argmin_and_min(score_list)
-                                            border=max(min_num,border)
+                                        score1,score2=model_score(ans_num,y)
+                                        if np.logical_not(np.isnan(score1)):
+                                            if score1>border1:
+                                                score_list[min_index,0]=score1
+                                                score_list[min_index,1]=score2
+                                                eq_list[min_index,:2*n_op+1]=equation
+                                                min_num1,min_num2,min_index=argmin_and_min(score_list)
+                                                if border1>min_num1:
+                                                    border1=min_num1
+                                                    border2=min_num2
+                                                elif border1==min_num1:
+                                                    if border2>min_num2:
+                                                        border2=min_num2
+                                            elif score1==border1:
+                                                if score2>border2:
+                                                    score_list[min_index,0]=score1
+                                                    score_list[min_index,1]=score2
+                                                    eq_list[min_index,:2*n_op+1]=equation
+                                                    min_num1,min_num2,min_index=argmin_and_min(score_list)
+                                                    if border1>min_num1:
+                                                        border1=min_num1
+                                                        border2=min_num2
+                                                    elif border1==min_num1:
+                                                        if border2>min_num2:
+                                                            border2=min_num2
                     progress.update(1)
                 save_score_list[thread_id]=score_list
                 save_eq_list[thread_id]=eq_list
                 min_index_list[thread_id]=min_index
-                border_list[thread_id]=border
+                border_list[thread_id,0]=border1
+                border_list[thread_id,1]=border2
                 if max_n_op!=n_op:
                     last_index_thread[thread_id]=last_index
                     
             if num_threads!=1:
-                border_list[:]=np.partition(save_score_list.ravel(),-how_many_to_save)[-how_many_to_save]
+                border1=np.partition(save_score_list[:,:,0].ravel(),-how_many_to_save)[-how_many_to_save]
+                n_save_same_score1=how_many_to_save-np.sum(save_score_list[:,:,0]>border1)
+                border2=np.sort(save_score_list[:,:,1].ravel()[save_score_list[:,:,0].ravel()==border1])[::-1][n_save_same_score1-1]
+                border_list[:,0]=border1
+                border_list[:,1]=border2
                 
             if max_n_op!=n_op:
                 sum_last_index=np.sum(last_index_thread)
@@ -411,15 +461,15 @@ def sub_loop_binary_op(x,y,score_func,how_many_to_save,n_op,n_op1,
                     used_shape_id_dict[n_op]={n_binary_op:used_shape_id_arr}
                     used_info_dict[n_op]={n_binary_op:used_info_arr}
 
-@njit(error_model="numpy",cache=True)
+@njit(error_model="numpy")
 def check_eq(eq,ban_ops):#use exp,exp-,log,sin,cos
     for ban_op in ban_ops:
         if ban_op in eq:
             return False
     return True
     
-@njit(parallel=True,error_model="numpy",cache=True)#,fastmath=True)
-def sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
+@njit(parallel=True,error_model="numpy")#,fastmath=True)
+def sub_loop_unary_op(x,y,model_score,how_many_to_save,n_op,use_unary_op,
                       save_score_list,save_eq_list,min_index_list,border_list,used_eq_dict,used_unit_dict,used_shape_id_dict,used_info_dict,progress):
     Nan_number=-100
     num_threads=save_score_list.shape[0]
@@ -445,7 +495,7 @@ def sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
             score_list=save_score_list[thread_id].copy()
             eq_list=save_eq_list[thread_id].copy()
             min_index=min_index_list[thread_id]
-            border=border_list[thread_id]
+            border1,border2=border_list[thread_id,0],border_list[thread_id,1]
             last_index=0
             equation=np.empty((2*n_op+1),dtype="int8")
             for i in range(thread_id,loop,num_threads):
@@ -524,28 +574,51 @@ def sub_loop_unary_op(x,y,score_func,how_many_to_save,n_op,use_unary_op,
                         equation[len_base_eq]=op
                         ans_num=calc_RPN(x,equation)
                         if np.logical_not(np.isnan(ans_num[0])):
-                            score=score_func(ans_num,y)
-                            if np.logical_not(np.isnan(score)):
+                            score1,score2=model_score(ans_num,y)
+                            if np.logical_not(np.isnan(score1)):
                                 if max_n_op!=n_op:
                                     used_unit_arr_thread[thread_id,last_index]=unit
                                     used_eq_arr_thread[thread_id,last_index]=equation
                                     used_shape_id_arr_thread[thread_id,last_index]=0
                                     used_info_arr_thread[thread_id,last_index]=eq_to_num(equation,x_max)
                                     last_index+=1
-                                if score>=border:
-                                    score_list[min_index]=score
+                                if score1>border1:
+                                    score_list[min_index,0]=score1
+                                    score_list[min_index,1]=score2
                                     eq_list[min_index,:2*n_op+1]=equation
-                                    min_num,min_index=argmin_and_min(score_list)
-                                    border=max(min_num,border)
+                                    min_num1,min_num2,min_index=argmin_and_min(score_list)
+                                    if border1>min_num1:
+                                        border1=min_num1
+                                        border2=min_num2
+                                    elif border1==min_num1:
+                                        if border2>min_num2:
+                                            border2=min_num2
+                                elif score1==border1:
+                                    if score2>border2:
+                                        score_list[min_index,0]=score1
+                                        score_list[min_index,1]=score2
+                                        eq_list[min_index,:2*n_op+1]=equation
+                                        min_num1,min_num2,min_index=argmin_and_min(score_list)
+                                        if border1>min_num1:
+                                            border1=min_num1
+                                            border2=min_num2
+                                        elif border1==min_num1:
+                                            if border2>min_num2:
+                                                border2=min_num2
                 progress.update(1)
             save_score_list[thread_id]=score_list
             save_eq_list[thread_id]=eq_list
             min_index_list[thread_id]=min_index
-            border_list[thread_id]=border
+            border_list[thread_id,0]=border1
+            border_list[thread_id,1]=border2
             if max_n_op!=n_op:
                 last_index_thread[thread_id]=last_index
         if num_threads!=1:
-            border_list[:]=np.partition(save_score_list.ravel(),-how_many_to_save)[-how_many_to_save]
+            border1=np.partition(save_score_list[:,:,0].ravel(),-how_many_to_save)[-how_many_to_save]
+            n_save_same_score1=how_many_to_save-np.sum(save_score_list[:,:,0]>border1)
+            border2=np.sort(save_score_list[:,:,1].ravel()[save_score_list[:,:,0].ravel()==border1])[::-1][n_save_same_score1-1]
+            border_list[:,0]=border1
+            border_list[:,1]=border2
         
         if max_n_op!=n_op:
             sum_last_index=np.sum(last_index_thread)

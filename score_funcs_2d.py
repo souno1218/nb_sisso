@@ -31,7 +31,7 @@ def QDA_2d(X,Y):#X.shape=(2,-1)
     value2/=det_cov2
     value3=2*(np.log(np.sum(Y))-np.log(np.sum(~Y)))-np.log(det_cov1)+np.log(det_cov2)
     value=(-value1+value2+value3)
-    return np.sum((value>0)==Y)/X.shape[1]
+    return np.sum((value>0)==Y)/X.shape[1],0
 
 @njit(error_model="numpy",fastmath=True)
 def LDA_2d(X,Y):#xy.shape=(2,-1)
@@ -52,7 +52,7 @@ def LDA_2d(X,Y):#xy.shape=(2,-1)
     value+=(mean_1_1**2-mean_0_1**2)*var_0/2
     value+=(mean_0_0*mean_0_1-mean_1_0*mean_1_1)*cov
     value-=(var_0*var_1-cov**2)*(np.log(pi_1/pi_0))
-    return np.sum((value>0)==Y)/X.shape[1]
+    return np.sum((value>0)==Y)/X.shape[1],0
 
 @njit(error_model="numpy")
 def DT_1d(x,y):#x.shape=(N),y=ans
@@ -112,7 +112,7 @@ def DT_2d(X,Y):#xy.shape=(2,-1)
         score+=weight0*DT_1d(X[score_dim][index_0],Y[index_0])
     if weight1!=0:
         score+=weight1*DT_1d(X[score_dim][index_1],Y[index_1])
-    return score
+    return score,0
 
 @njit(error_model="numpy")
 def sub_Hull_2d(base_x,other_x,not_is_in,arange,base_index1,base_index2,base_x_mask):
@@ -137,11 +137,12 @@ def sub_Hull_2d(base_x,other_x,not_is_in,arange,base_index1,base_index2,base_x_m
 
 @njit(error_model="numpy")
 def Hull_2d(X,Y):#xy.shape=(2,-1)
-    index0=np.argsort(X[0])
-    index1=np.argsort(X[1])
-    if (np.sum(index0==index1)/X.shape[1])>0.9:
-        return 0
-    if (np.sum(index0==index1[::-1])/X.shape[1])>0.9:
+    #Spearman rank correlation coefficient
+    index0=np.argsort(np.argsort(X[0]))
+    index1=np.argsort(np.argsort(X[1]))
+    n=index0.shape[0]
+    r_R=np.abs(1-6*(index0-index1)**2/(n*(n**2-1)))
+    if r_R>0.9:
         return 0
     class1_X,class2_X=X[:,Y],X[:,~Y]
     index_x_max=np.argmax(class1_X[0])
@@ -166,4 +167,4 @@ def Hull_2d(X,Y):#xy.shape=(2,-1)
     sub_Hull_2d(class2_X,class1_X,not_is_in,arange,index_x_max,index_x_min,copy_class2_X_mask)
     sub_Hull_2d(class2_X,class1_X,not_is_in,arange,index_x_min,index_x_max,class2_X_mask)
     ans+=np.sum(~not_is_in)
-    return 1-(ans/(Y.shape[0]))
+    return 1-(ans/(Y.shape[0])),0

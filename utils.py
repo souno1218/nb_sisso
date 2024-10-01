@@ -31,11 +31,14 @@ def thread_check(num_threads):
 
 @njit(error_model="numpy",cache=True)
 def argmin_and_min(arr):
-    min_num,min_index=arr[0],0
+    min_num1,min_num2,min_index=arr[0,0],arr[0,1],0
     for i in range(1,arr.shape[0]):
-        if min_num>arr[i]:
-            min_num,min_index=arr[i],i
-    return min_num,min_index
+        if min_num1>arr[i,0]:
+            min_num1,min_num2,min_index=arr[i,0],arr[i,1],i
+        elif min_num1==arr[i,0]:
+            if min_num2>arr[i,1]:
+                min_num1,min_num2,min_index=arr[i,0],arr[i,1],i
+    return min_num1,min_num2,min_index
 
 def decryption(equation,columns=None):
     if columns is None:

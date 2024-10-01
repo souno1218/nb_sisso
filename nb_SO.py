@@ -204,12 +204,12 @@ def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_cho
     len_x_arr=np.array([np.sum(arr_x[i,:,0]!=Nan_number) for i in arr_which_arr_to_choose_from])
     repeat=np.prod(len_x_arr)
     
-    score_list_thread=np.full((num_threads,int(how_many_to_save)),np.finfo(np.float64).min,dtype="float64")
-    index_list_thread=np.full((num_threads,int(how_many_to_save),how_many_to_choose),Nan_number,dtype="int64")
+    score_list_thread=np.full((num_threads,how_many_to_save,2),np.finfo(np.float64).min,dtype="float64")
+    index_list_thread=np.full((num_threads,how_many_to_save,how_many_to_choose),Nan_number,dtype="int64")
     for thread_id in prange(num_threads):
-        score_list=np.full((int(how_many_to_save)),np.finfo(np.float64).min,dtype="float64")
-        index_list=np.full((int(how_many_to_save),how_many_to_choose),Nan_number,dtype="int64")
-        border=np.finfo(np.float64).min
+        score_list=np.full((how_many_to_save,2),np.finfo(np.float64).min,dtype="float64")
+        index_list=np.full((how_many_to_save,how_many_to_choose),Nan_number,dtype="int64")
+        border1,border2=np.finfo(np.float64).min,np.finfo(np.float64).min
         min_index=0
         index_arr=np.zeros((how_many_to_choose),dtype="int64")
         selected_X=np.empty((how_many_to_choose,arr_x.shape[2]),dtype="float64")
@@ -220,13 +220,45 @@ def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_cho
                 continue
             for j,k in enumerate(index_arr):
                 selected_X[j]=arr_x[arr_which_arr_to_choose_from[j],k]
-            score=score_func(selected_X,y)
-            if np.logical_not(np.isnan(score))&(score>=border):
-                score_list[min_index]=score
-                index_list[min_index]=index_arr
-                border,min_index=argmin_and_min(score_list)
+            score1,score2=score_func(selected_X,y)
+            if np.logical_not(np.isnan(score1)):
+                if score1>border1:
+                    score_list[min_index,0]=score1
+                    score_list[min_index,1]=score2
+                    index_list[min_index]=index_arr
+                    min_num1,min_num2,min_index=argmin_and_min(score_list)
+                    if border1>min_num1:
+                        border1=min_num1
+                        border2=min_num2
+                    elif border1==min_num1:
+                        if border2>min_num2:
+                            border2=min_num2
+                elif score1==border1:
+                    if score2>border2:
+                        score_list[min_index,0]=score1
+                        score_list[min_index,1]=score2
+                        index_list[min_index]=index_arr
+                        min_num1,min_num2,min_index=argmin_and_min(score_list)
+                        if border1>min_num1:
+                            border1=min_num1
+                            border2=min_num2
+                        elif border1==min_num1:
+                            if border2>min_num2:
+                                border2=min_num2         
             progress_proxy.update(1)
         score_list_thread[thread_id]=score_list
         index_list_thread[thread_id]=index_list
-    sort_index=np.argsort(score_list_thread.ravel())[::-1][:how_many_to_save]
-    return score_list_thread.ravel()[sort_index],index_list_thread.reshape(-1,how_many_to_choose)[sort_index]
+        
+    with objmode(index='int64[:]'):
+        index=np.lexsort((score_list_thread[:,:,1].ravel(),score_list_thread[:,:,0].ravel()))[::-1][:how_many_to_save]
+    return score_list_thread.reshape(-1,2)[index],index_list_thread.reshape(-1,how_many_to_choose)[index]
+
+
+
+
+
+
+
+
+
+
