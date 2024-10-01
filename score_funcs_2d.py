@@ -143,7 +143,7 @@ def Hull_2d(X,Y):#xy.shape=(2,-1)
     n=index0.shape[0]
     r_R=np.abs(1-6*(index0-index1)**2/(n*(n**2-1)))
     if r_R>0.9:
-        return 0
+        return 0,0
     class1_X,class2_X=X[:,Y],X[:,~Y]
     index_x_max=np.argmax(class1_X[0])
     index_x_min=np.argmin(class1_X[0])

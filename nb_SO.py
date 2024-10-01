@@ -11,7 +11,7 @@ from utils import thread_check,calc_RPN,argmin_and_min,eq_list_to_num,raise_and_
 def SO(
     list_x,
     y,
-    score_func,
+    model_score,
     which_arr_to_choose_from,
     combination_dim=2,
     num_threads=None,
@@ -21,7 +21,7 @@ def SO(
     log_interval=10,
     logger=None):
     """
-    select all conmbinations from the given ndarray(list_x), throw them into score_func, and store how_many_to_save in order of size.
+    select all conmbinations from the given ndarray(list_x), throw them into model_score, and store how_many_to_save in order of size.
     
     Parameters
     ----------        
@@ -33,7 +33,7 @@ def SO(
     y : ndarray of shape (n_samples)
         Target values.
         
-    score_func : callable
+    model_score : callable
         func that returns a score,jit compilation by numba is required.
         Parameters
             - x : ndarray of shape (combination_dim,n_samples)
@@ -126,7 +126,7 @@ def SO(
 
     logger.info("SO")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
-    logger.info(f"combination_dim={combination_dim}, score_func={score_func.__name__}, ")
+    logger.info(f"combination_dim={combination_dim}, model_score={model_score.__name__}, ")
     logger.info(f"which_arr_to_choose_from={which_arr_to_choose_from}")
     repeat=loop_counter(arr_x,arr_which_arr_to_choose_from)
     logger.info(f"loop={repeat}")
@@ -135,10 +135,10 @@ def SO(
     if is_progress:
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
         with ProgressBar(total=repeat,dynamic_ncols=False,bar_format=bar_format,leave=False) as progress:
-            score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_choose_from,progress)
+            score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,model_score,arr_which_arr_to_choose_from,progress)
     else:
         with loop_log(logger,interval=log_interval,tot_loop=repeat,header="  ") as progress:
-            score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_choose_from,progress) 
+            score_list,index_list=SO_loop(num_threads,arr_x,y,how_many_to_save,model_score,arr_which_arr_to_choose_from,progress) 
     dtime=datetime.datetime.now()-time0
     logger.info(f"  END : time={dtime}")
     logger.info(f"best : score={score_list[0]},index={index_list[0]}")
@@ -198,7 +198,7 @@ def make_index_arr(number,check_list,len_x_arr,arr_which_arr_to_choose_from,inde
     return True
 
 @njit(parallel=True,error_model="numpy")#,fastmath=True
-def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_choose_from,progress_proxy):
+def SO_loop(num_threads,arr_x,y,how_many_to_save,model_score,arr_which_arr_to_choose_from,progress_proxy):
     Nan_number=-100
     how_many_to_choose=arr_which_arr_to_choose_from.shape[0]
     len_x_arr=np.array([np.sum(arr_x[i,:,0]!=Nan_number) for i in arr_which_arr_to_choose_from])
@@ -220,7 +220,7 @@ def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_cho
                 continue
             for j,k in enumerate(index_arr):
                 selected_X[j]=arr_x[arr_which_arr_to_choose_from[j],k]
-            score1,score2=score_func(selected_X,y)
+            score1,score2=model_score(selected_X,y)
             if np.logical_not(np.isnan(score1)):
                 if score1>border1:
                     score_list[min_index,0]=score1
@@ -252,13 +252,3 @@ def SO_loop(num_threads,arr_x,y,how_many_to_save,score_func,arr_which_arr_to_cho
     with objmode(index='int64[:]'):
         index=np.lexsort((score_list_thread[:,:,1].ravel(),score_list_thread[:,:,0].ravel()))[::-1][:how_many_to_save]
     return score_list_thread.reshape(-1,2)[index],index_list_thread.reshape(-1,how_many_to_choose)[index]
-
-
-
-
-
-
-
-
-
-
