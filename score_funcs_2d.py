@@ -141,7 +141,7 @@ def Hull_2d(X,Y):#xy.shape=(2,-1)
     index0=np.argsort(np.argsort(X[0]))
     index1=np.argsort(np.argsort(X[1]))
     n=index0.shape[0]
-    r_R=np.abs(1-6*(index0-index1)**2/(n*(n**2-1)))
+    r_R=np.abs(1-6*np.sum((index0-index1)**2)/(n*(n**2-1)))
     if r_R>0.9:
         return 0,0
     class1_X,class2_X=X[:,Y],X[:,~Y]
@@ -160,7 +160,7 @@ def Hull_2d(X,Y):#xy.shape=(2,-1)
     index_x_min=np.argmin(class2_X[0])
     arange=np.arange(class2_X.shape[1])
     class2_X_mask=np.ones(class2_X.shape[1],dtype="bool")
-    not_is_in=np.ones(class2_X.shape[1],dtype="bool")
+    not_is_in=np.ones(class1_X.shape[1],dtype="bool")
     class2_X_mask[index_x_max]=False
     class2_X_mask[index_x_min]=False
     copy_class2_X_mask=class2_X_mask.copy()
