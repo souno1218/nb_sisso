@@ -43,7 +43,7 @@ class loop_log:
             if self.is_tot_loop:
                 count=self.counter.count[0]
                 if count!=0:
-                    left_time=(self.tot_loop-count)*dtime/count
+                    left_time=((self.tot_loop-count)/count)*dtime
                     txt=f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  {dtime} : {left_time}"
                 else:
                     txt=f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  {dtime} : inf"

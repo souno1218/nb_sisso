@@ -178,6 +178,8 @@ def calc_RPN(x,equation):
         stack[0,0]=np.nan
     elif is_zero(stack[last_stack_index]):
         stack[0,0]=np.nan
+    elif is_one(stack[last_stack_index]):
+        stack[0,0]=np.nan
     #if is_const(stack[0]):
         #stack[0,0]=np.nan
     return stack[0]
@@ -186,8 +188,27 @@ def calc_RPN(x,equation):
 def is_zero(num):
     rtol=1e-010
     return np.all(np.abs(num)<=rtol)
+    
+@njit(error_model="numpy",cache=True)#,fastmath=True)
+def is_one(num):
+    rtol=1e-010
+    if (np.abs(num[0])-1)<=rtol:
+        if is_const(num):
+            return True
+    return False
 
 @njit(error_model="numpy",cache=True)#,fastmath=True)
 def is_const(num):
     rtol=1e-010
     return (np.max(num)-np.min(num))/np.abs(np.mean(num))<=rtol
+
+@njit(error_model="numpy",cache=True)#,fastmath=True)
+def jit_cov(X,ddof=1):
+    n=X.shape[1]
+    X_1=X[0,:]-np.sum(X[0,:])/n
+    X_2=X[1,:]-np.sum(X[1,:])/n
+    var_1=np.sum(X_1*X_1)/(n-ddof)#不偏分散、sklearnに準拠
+    var_2=np.sum(X_2*X_2)/(n-ddof)
+    cross_cov=np.sum(X_1*X_2)/(n-ddof)
+    return var_1,var_2,cross_cov
+

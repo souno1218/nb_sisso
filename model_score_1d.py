@@ -1,7 +1,5 @@
-from numba import njit,int64,float64
 import numpy as np
-from numba.types import string
-from numba.types import unicode_type
+from numba import njit
 
 #If error_model is available for jitclass, replace all of them with class
 
@@ -15,7 +13,7 @@ def debug_1d(x,y):
 @njit(error_model="numpy")#,fastmath=True)
 def sub_debug_1d_fit(x,y):
     mu=np.mean(x)
-    sigma=np.sqrt(np.sum((x-mu)**2))
+    sigma=np.sqrt(np.mean((x-mu)**2))+1e-300
     return mu,sigma
 
 @njit(error_model="numpy")#,fastmath=True)
@@ -23,7 +21,7 @@ def sub_debug_1d_score(x,y,mu,sigma):
     return np.abs((x[0]-mu)/sigma),0
 
 
-### LDA
+### LDA  ,  https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
 @njit(error_model="numpy")#,fastmath=True)
 def LDA_1d(x,y):
     args=sub_LDA_1d_fit(x,y)
@@ -35,16 +33,19 @@ def sub_LDA_1d_fit(x,y):
     pi_F=np.sum(~y)
     mu_T=np.mean(x[y])
     mu_F=np.mean(x[~y])
-    sigma=(np.sum((x[y]-mu_T)**2)+np.sum((x[~y]-mu_F)**2))/y.shape[0]
+    sigma=(np.sum((x[y]-mu_T)**2)+np.sum((x[~y]-mu_F)**2))/y.shape[0]+1e-300
     return pi_T,pi_F,mu_T,mu_F,sigma
 
 @njit(error_model="numpy")
 def sub_LDA_1d_score(x,y,pi_T,pi_F,mu_T,mu_F,sigma):
     f=(mu_T-mu_F)*x-(mu_T-mu_F)*(mu_T+mu_F)/2+sigma*np.log(pi_T/pi_F)
-    return np.sum((f>=0)==y)/y.shape[0],0
+    score=np.sum((f>=0)==y)/y.shape[0]
+    #Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
+    kl_d=((mu_T-mu_F)**2)/2/sigma
+    return score,kl_d
 
 
-### QDA
+### QDA  ,  https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
 @njit(error_model="numpy")
 def QDA_1d(x,y):
     args=sub_QDA_1d_fit(x,y)
@@ -52,17 +53,21 @@ def QDA_1d(x,y):
 
 @njit(error_model="numpy")
 def sub_QDA_1d_fit(x,y):
-    mu_T,mu_F=np.mean(x[y]),np.mean(x[~y])
+    mu_T,mu_F=np.mean(x[y])+1e-300,np.mean(x[~y])+1e-300
     pi_T,pi_F=np.sum(y),np.sum(~y)
-    sigma_T=np.sum((x[y]-mu_T)**2)/(pi_T-1)
-    sigma_F=np.sum((x[~y]-mu_F)**2)/(pi_F-1)        
-    value2=(2*np.log(pi_T/pi_F)-np.log(np.abs(sigma_T/sigma_F)))
+    sigma_T=np.sum((x[y]-mu_T)**2)/(pi_T-1)+1e-300
+    sigma_F=np.sum((x[~y]-mu_F)**2)/(pi_F-1)+1e-300      
+    value2=(2*np.log(pi_T/pi_F)-np.log(sigma_T/sigma_F))
     return mu_T,mu_F,sigma_T,sigma_F,value2
 
 @njit(error_model="numpy")
 def sub_QDA_1d_score(x,y,mu_T,mu_F,sigma_T,sigma_F,value2):
     value=-((x-mu_T)**2/sigma_T)+(((x-mu_F))**2/sigma_F)+value2
-    return np.sum((value>0)==y)/y.shape[0],0
+    score=np.sum((value>0)==y)/y.shape[0]
+    #Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
+    kl_d=(sigma_T+(mu_T-mu_F)**2)/2/sigma_F-0.5
+    kl_d+=np.log(sigma_F/sigma_T)/2
+    return np.sum((value>0)==y)/y.shape[0],kl_d
 
 ### Hull
 @njit(error_model="numpy")#,fastmath=True)
@@ -83,7 +88,8 @@ def sub_Hull_1d_score(x,y,min_T,max_T,min_F,max_F):
     TF[y]|=x[y]>max_F
     TF[~y]=min_T>x[~y]
     TF[~y]|=x[~y]>max_T
-    return np.mean(TF),0
+    len_overlap=min(max_T,max_F)-max(min_T,min_F)
+    return np.mean(TF),-len_overlap
 
 ### DT
 @njit(error_model="numpy")
@@ -109,16 +115,33 @@ def sub_DT_1d_fit(x,y):
     sort_x=x[sort_index[TF]]
     if score_FT>score_TF:
         index=np.argmax(cumsum)
-        first_area=True
+        area_0_predict=True
     else:
         index=np.argmin(cumsum)
-        first_area=False
-    border=(sort_x[index]+sort_x[index+1])/2
-    return border,first_area
+        area_0_predict=False
+    if sort_x.shape[0]!=index+1:
+        border=(sort_x[index]+sort_x[index+1])/2
+    else:
+        border=sort_x[index]
+    return border,area_0_predict
 
 @njit(error_model="numpy")
-def sub_DT_1d_score(x,y,border,first_area):
-    return (np.sum(x[y==first_area]<=border)+np.sum(x[y!=first_area]>border))/y.shape[0],0
+def sub_DT_1d_score(x,y,border,area_0_predict):
+    n_tot=x.shape[0]+1e-300
+    x_first_area=(x<=border)
+    n_first_area=np.sum(x_first_area)+1e-300
+    n_first_area_T=np.sum(y[x_first_area]==area_0_predict)+1e-300
+    x_second_area=(x>border)
+    n_second_area=np.sum(x_second_area)+1e-300
+    n_second_area_T=np.sum(y[x_second_area]!=area_0_predict)+1e-300
+    
+    score=(n_first_area_T+n_second_area_T)/n_tot
+    
+    entropy=-n_first_area_T*np.log2(n_first_area_T/n_first_area)/n_tot
+    entropy+=-(n_first_area-n_first_area_T)*np.log2((n_first_area-n_first_area_T+1e-300)/n_first_area)/n_tot
+    entropy+=-n_second_area_T*np.log2(n_second_area_T/n_second_area)/n_tot
+    entropy+=-(n_second_area-n_second_area_T)*np.log2((n_second_area-n_second_area_T+1e-300)/n_second_area)/n_tot
+    return score,-entropy
 
 ### make_CV_model
 def make_CV_model(sub_func_fit,sub_func_score,k=5,name=None):

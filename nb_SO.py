@@ -41,7 +41,11 @@ def SO(
             - y : ndarray of shape (n_samples)
                 Target values.
         Returns
-            - score : float
+            - score1 : float
+                Priority is score1>score2.
+                Values for which greater is better, such as negative mean-square error or accuracies.
+            - score2 : float
+                Compare score2 if score1 is the same
                 Values for which greater is better, such as negative mean-square error or accuracies.
                 
     which_arr_to_choose_from : dict

@@ -5,7 +5,7 @@ from log_progress import loop_log
 from numba_progress import ProgressBar
 import datetime,logging,multiprocessing
 from numba import njit,prange,set_num_threads,objmode
-from utils import thread_check,calc_RPN,argmin_and_min,raise_and_log,dtype_shape_check,type_check
+from utils import thread_check,calc_RPN,argmin_and_min,raise_and_log,dtype_shape_check,type_check,is_const
 
 def SIS(
     x,
@@ -520,8 +520,9 @@ def sub_loop_unary_op(x,y,model_score,how_many_to_save,n_op,use_unary_op,
                             None  #存在意義が分からない
                         case -7:#^2
                             if equation[len_base_eq-1]!=-8:#sqrt
-                                checked=True
-                                unit=2*base_unit#units更新
+                                if n_op!=1:
+                                    checked=True
+                                    unit=2*base_unit#units更新
                         case -8:#sqrt
                             if not equation[len_base_eq-1] in [-7,-12]:#^2,^6
                                 checked=True
