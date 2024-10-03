@@ -29,8 +29,10 @@ def sub_QDA_2d_score(X,Y,pi_T,pi_F,classT_var_1,classT_var_2,classT_cov,classF_v
     target_x_1=(X.T-mean_T).T
     target_x_2=(X.T-mean_F).T
     value1=classT_var_2*target_x_1[0,:]**2+classT_var_1*target_x_1[1,:]**2-2*classT_cov*target_x_1[0,:]*target_x_1[1,:]
+    value1/=det_covT
     value2=classF_var_2*target_x_2[0,:]**2+classF_var_1*target_x_2[1,:]**2-2*classF_cov*target_x_2[0,:]*target_x_2[1,:]
-    value3=2*np.log(pi_T/pi_F)-np.log(np.abs(det_covT/det_covF+1e-300))
+    value2/=det_covF
+    value3=2*np.log(pi_T/pi_F)-np.log(np.abs(det_covT/det_covF)+1e-300)
     value=(-value1+value2+value3)
     score=np.sum((value>0)==Y)/X.shape[1]
 
