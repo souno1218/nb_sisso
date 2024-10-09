@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import numpy as np
 from numba import int64
 import time
@@ -34,9 +33,7 @@ class loop_log:
             self.is_tot_loop = False
         else:
             if not isinstance(tot_loop, int):
-                raise TypeError(
-                    f"Expected variable 'tot_loop' to be of type int, but got {type(tot_loop)}."
-                )
+                raise TypeError(f"Expected variable 'tot_loop' to be of type int, but got {type(tot_loop)}.")
             self.is_tot_loop = True
             self.tot_loop = tot_loop
             self.str_tot_loop = str(tot_loop)

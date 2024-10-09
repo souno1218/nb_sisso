@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 from numba import njit
 
@@ -36,19 +38,13 @@ def sub_LDA_1d_fit(x, y):
     pi_F = np.sum(~y)
     mu_T = np.mean(x[y])
     mu_F = np.mean(x[~y])
-    sigma = (np.sum((x[y] - mu_T) ** 2) + np.sum((x[~y] - mu_F) ** 2)) / y.shape[
-        0
-    ] + 1e-300
+    sigma = (np.sum((x[y] - mu_T) ** 2) + np.sum((x[~y] - mu_F) ** 2)) / y.shape[0] + 1e-300
     return pi_T, pi_F, mu_T, mu_F, sigma
 
 
 @njit(error_model="numpy")
 def sub_LDA_1d_score(x, y, pi_T, pi_F, mu_T, mu_F, sigma):
-    f = (
-        (mu_T - mu_F) * x
-        - (mu_T - mu_F) * (mu_T + mu_F) / 2
-        + sigma * np.log(pi_T / pi_F)
-    )
+    f = (mu_T - mu_F) * x - (mu_T - mu_F) * (mu_T + mu_F) / 2 + sigma * np.log(pi_T / pi_F)
     score = np.sum((f >= 0) == y) / y.shape[0]
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = ((mu_T - mu_F) ** 2) / 2 / sigma
@@ -112,10 +108,7 @@ def sub_Hull_1d_score(x, y, min_T, max_T, min_F, max_F):
 def DT_1d(x, y):
     border, tot_entropy, area_predict, _, _ = sub_DT_1d_fit(x, y)
     n_tot = x.shape[0] + 1e-300
-    score = (
-        np.sum(y[x < border] == area_predict[0])
-        + np.sum(y[x >= border] == area_predict[1])
-    ) / n_tot
+    score = (np.sum(y[x < border] == area_predict[0]) + np.sum(y[x >= border] == area_predict[1])) / n_tot
     return score, -tot_entropy
 
 
@@ -170,20 +163,92 @@ def sub_DT_1d_score(x, y, border, tot_entropy, area_predict, entropy0, entropy1)
     n_second_area = np.sum(second_area) + 1e-300
     n_first_area_T = np.sum(y[first_area]) + 1e-300
     n_second_area_T = np.sum(y[second_area]) + 1e-300
-    score = (
-        np.sum(y[first_area] == area_predict[0])
-        + np.sum(y[~first_area] == area_predict[1])
-    ) / n_tot
+    score = (np.sum(y[first_area] == area_predict[0]) + np.sum(y[~first_area] == area_predict[1])) / n_tot
 
     entropy = (
         -n_first_area_T * np.log2(n_first_area_T / n_first_area)
-        - (n_first_area - n_first_area_T)
-        * np.log2((n_first_area - n_first_area_T + 1e-300) / n_first_area)
+        - (n_first_area - n_first_area_T) * np.log2((n_first_area - n_first_area_T + 1e-300) / n_first_area)
         - n_second_area_T * np.log2(n_second_area_T / n_second_area)
-        - (n_second_area - n_second_area_T)
-        * np.log2((n_second_area - n_second_area_T + 1e-300) / n_second_area)
+        - (n_second_area - n_second_area_T) * np.log2((n_second_area - n_second_area_T + 1e-300) / n_second_area)
     ) / n_tot
     return score, -entropy
+
+
+### KNN
+def KNN_1d(k=5, name=None):
+    @njit(error_model="numpy")
+    def KNN_1d(x, y):
+        n_samples = y.shape[0]
+        sort_index = np.argsort(x)
+        sorted_x = x[sort_index]
+        sorted_y = y[sort_index]
+
+        count, loss = 0, 0
+        for i in range(n_samples):
+            d = np.abs(sorted_x[max(i - k, 0) : min(i + k + 1, n_samples)] - sorted_x[i])
+            index = max(i - k, 0) + np.argsort(d)[: k + 1]
+            index = index[index != i][:k]
+            count_T = int(np.sum(sorted_y[index]))
+            count_F = k - count_T
+            if count_T > count_F:
+                if sorted_y[i]:
+                    count += 1
+                loss -= count_F
+            elif count_T < count_F:
+                if not sorted_y[i]:
+                    count += 1
+                loss -= count_T
+            else:  # count_T==count_F
+                loss -= count_T
+        return count / n_samples, loss / n_samples / k
+
+    model = KNN_1d
+    if name is None:
+        model.__name__ = f"KNN_k_{k}_1d"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
+
+
+@njit(error_model="numpy")
+def sub_KNN_1d_fit(x, y):
+    return x, y
+
+
+def sub_KNN_1d_score(k=5, name=None):
+    @njit(error_model="numpy")
+    def sub_KNN_1d_score(x, y, train_x, train_y):
+        n_samples = y.shape[0]
+        count, loss = 0, 0
+        for i in range(n_samples):
+            d = np.abs(train_x - x[i])
+            index = np.argsort(d)[:k]
+            count_T = int(np.sum(train_y[index]))
+            count_F = k - count_T
+            if count_T > count_F:
+                if y[i]:
+                    count += 1
+                loss -= count_F
+            elif count_T < count_F:
+                if not y[i]:
+                    count += 1
+                loss -= count_T
+            else:  # count_T==count_F
+                loss -= count_T
+        return count / n_samples, loss / n_samples / k
+
+    model = sub_KNN_1d_score
+    if name is None:
+        model.__name__ = f"sub_KNN_k_{k}_1d_score"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
 
 
 ### make CV_model
@@ -207,11 +272,13 @@ def CV_model_1d(sub_func_fit, sub_func_score, k=5, name=None):
         return sum_score1 / k, sum_score2 / k
 
     model = CrossValidation_1d
-    if not name is None:
+    if name is None:
+        base_model_name = sub_func_fit.__name__
+        base_model_name = base_model_name.replace("sub_", "").replace("_1d_fit", "")
+        model.__name__ = f"CV_k_{k}_{base_model_name}_1d"
+    else:
         if not isinstance(name, str):
-            raise TypeError(
-                f"Expected variable 'name' to be of type str, but got {type(name)}."
-            )
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
         else:
             model.__name__ = name
     return model

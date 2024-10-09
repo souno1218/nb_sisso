@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 from numba import njit, prange, set_num_threads, objmode
 
@@ -11,31 +13,23 @@ def type_check(logger, var, var_name, type_):
     if not isinstance(var, type_):
         raise_and_log(
             logger,
-            TypeError(
-                f"Expected variable '{var_name}' to be of type {type_}, but got {type(var)}."
-            ),
+            TypeError(f"Expected variable '{var_name}' to be of type {type_}, but got {type(var)}."),
         )
 
 
-def dtype_shape_check(
-    logger, var, var_name, dtype_=None, ndim=None, dict_index_len=None
-):
+def dtype_shape_check(logger, var, var_name, dtype_=None, ndim=None, dict_index_len=None):
     type_check(logger, var, var_name, np.ndarray)
     if not dtype_ is None:
         if var.dtype != dtype_:
             raise_and_log(
                 logger,
-                ValueError(
-                    f"Expected dtype for variable '{var_name}' to be {dtype_}, but got {var.dtype}."
-                ),
+                ValueError(f"Expected dtype for variable '{var_name}' to be {dtype_}, but got {var.dtype}."),
             )
     if not ndim is None:
         if var.ndim != ndim:
             raise_and_log(
                 logger,
-                ValueError(
-                    f"Expected ndim for variable '{var_name}' to be {ndim}, but got {var.ndim}."
-                ),
+                ValueError(f"Expected ndim for variable '{var_name}' to be {ndim}, but got {var.ndim}."),
             )
     if not dict_index_len is None:
         for k, v in dict_index_len.items():
@@ -170,9 +164,7 @@ def calc_RPN(x, equation):
                     stack[last_stack_index] **= 0.5
                 case -9:  # | |
                     # not all(x>=0),all(x<0)
-                    if np.all(
-                        (stack[last_stack_index, 0] * stack[last_stack_index, 1:]) >= 0
-                    ):
+                    if np.all((stack[last_stack_index, 0] * stack[last_stack_index, 1:]) >= 0):
                         stack[0, 0] = np.nan
                         return stack[0]
                     stack[last_stack_index] = np.abs(stack[last_stack_index])
@@ -201,9 +193,7 @@ def calc_RPN(x, equation):
                 case -17:  # cos
                     stack[last_stack_index] = np.cos(stack[last_stack_index])
                 case -18:  # scd
-                    stack[last_stack_index] = np.sin(
-                        stack[last_stack_index]
-                    )  # よくわからないため未実装
+                    stack[last_stack_index] = np.sin(stack[last_stack_index])  # よくわからないため未実装
                 case -100:  # END
                     break  # None
     if np.any(np.isinf(stack[last_stack_index])):  # 演算子の意味があるか

@@ -8,9 +8,7 @@ import datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode
 from utils import (
     thread_check,
-    calc_RPN,
     argmin_and_min,
-    eq_list_to_num,
     raise_and_log,
     dtype_shape_check,
     type_check,
@@ -136,9 +134,7 @@ def SO(
         )
 
     max_x_len = np.max([i.shape[0] for i in list_x])
-    arr_x = np.full(
-        (len(list_x), max_x_len, list_x[0].shape[1]), Nan_number, dtype="float64"
-    )
+    arr_x = np.full((len(list_x), max_x_len, list_x[0].shape[1]), Nan_number, dtype="float64")
     for i in range(len(list_x)):
         arr_x[i, : list_x[i].shape[0]] = list_x[i]
 
@@ -149,21 +145,15 @@ def SO(
 
     logger.info("SO")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
-    logger.info(
-        f"combination_dim={combination_dim}, model_score={model_score.__name__}, "
-    )
+    logger.info(f"combination_dim={combination_dim}, model_score={model_score.__name__}, ")
     logger.info(f"which_arr_to_choose_from={which_arr_to_choose_from}")
     repeat = loop_counter(arr_x, arr_which_arr_to_choose_from)
     logger.info(f"loop={repeat}")
 
     time0 = datetime.datetime.now()
     if is_progress:
-        bar_format = (
-            "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
-        )
-        with ProgressBar(
-            total=repeat, dynamic_ncols=False, bar_format=bar_format, leave=False
-        ) as progress:
+        bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        with ProgressBar(total=repeat, dynamic_ncols=False, bar_format=bar_format, leave=False) as progress:
             score_list, index_list = SO_loop(
                 num_threads,
                 arr_x,
@@ -174,9 +164,7 @@ def SO(
                 progress,
             )
     else:
-        with loop_log(
-            logger, interval=log_interval, tot_loop=repeat, header="  "
-        ) as progress:
+        with loop_log(logger, interval=log_interval, tot_loop=repeat, header="  ") as progress:
             score_list, index_list = SO_loop(
                 num_threads,
                 arr_x,
@@ -192,9 +180,7 @@ def SO(
     return score_list, index_list
 
 
-def type_check_which_arr_to_choose_from(
-    logger, combination_dim, which_arr_to_choose_from, list_x
-):
+def type_check_which_arr_to_choose_from(logger, combination_dim, which_arr_to_choose_from, list_x):
     type_check(logger, which_arr_to_choose_from, "which_arr_to_choose_from", dict)
     keys = list(which_arr_to_choose_from.keys())
     for x in keys:
@@ -221,9 +207,7 @@ def loop_counter(arr_x, arr_which_arr_to_choose_from):
 
 @njit(error_model="numpy")
 def make_check_list(arr_which_arr_to_choose_from):
-    return_arr = np.full(
-        (arr_which_arr_to_choose_from.shape[0], 2), 10000, dtype="int64"
-    )
+    return_arr = np.full((arr_which_arr_to_choose_from.shape[0], 2), 10000, dtype="int64")
     unique_arr = np.unique(arr_which_arr_to_choose_from)
     arange = np.arange(arr_which_arr_to_choose_from.shape[0])
     n = 0
@@ -239,9 +223,7 @@ def make_check_list(arr_which_arr_to_choose_from):
 
 
 @njit(error_model="numpy")
-def make_index_arr(
-    number, check_list, len_x_arr, arr_which_arr_to_choose_from, index_arr
-):
+def make_index_arr(number, check_list, len_x_arr, arr_which_arr_to_choose_from, index_arr):
     n = 0
     for i in range(arr_which_arr_to_choose_from.shape[0]):
         index_arr[i] = number % len_x_arr[i]
@@ -266,33 +248,21 @@ def SO_loop(
 ):
     Nan_number = -100
     how_many_to_choose = arr_which_arr_to_choose_from.shape[0]
-    len_x_arr = np.array(
-        [np.sum(arr_x[i, :, 0] != Nan_number) for i in arr_which_arr_to_choose_from]
-    )
+    len_x_arr = np.array([np.sum(arr_x[i, :, 0] != Nan_number) for i in arr_which_arr_to_choose_from])
     repeat = np.prod(len_x_arr)
 
-    score_list_thread = np.full(
-        (num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64"
-    )
-    index_list_thread = np.full(
-        (num_threads, how_many_to_save, how_many_to_choose), Nan_number, dtype="int64"
-    )
+    score_list_thread = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
+    index_list_thread = np.full((num_threads, how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
     for thread_id in prange(num_threads):
-        score_list = np.full(
-            (how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64"
-        )
-        index_list = np.full(
-            (how_many_to_save, how_many_to_choose), Nan_number, dtype="int64"
-        )
+        score_list = np.full((how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
+        index_list = np.full((how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
         border1, border2 = np.finfo(np.float64).min, np.finfo(np.float64).min
         min_index = 0
         index_arr = np.zeros((how_many_to_choose), dtype="int64")
         selected_X = np.empty((how_many_to_choose, arr_x.shape[2]), dtype="float64")
         check_list = make_check_list(arr_which_arr_to_choose_from)
         for i in range(thread_id, repeat, num_threads):
-            is_calc = make_index_arr(
-                i, check_list, len_x_arr, arr_which_arr_to_choose_from, index_arr
-            )
+            is_calc = make_index_arr(i, check_list, len_x_arr, arr_which_arr_to_choose_from, index_arr)
             if not is_calc:
                 continue
             for j, k in enumerate(index_arr):
@@ -327,9 +297,9 @@ def SO_loop(
         index_list_thread[thread_id] = index_list
 
     with objmode(index="int64[:]"):
-        index = np.lexsort(
-            (score_list_thread[:, :, 1].ravel(), score_list_thread[:, :, 0].ravel())
-        )[::-1][:how_many_to_save]
+        index = np.lexsort((score_list_thread[:, :, 1].ravel(), score_list_thread[:, :, 0].ravel()))[::-1][
+            :how_many_to_save
+        ]
     return (
         score_list_thread.reshape(-1, 2)[index],
         index_list_thread.reshape(-1, how_many_to_choose)[index],

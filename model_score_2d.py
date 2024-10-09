@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 from utils import jit_cov
 from numba import njit
@@ -78,22 +80,10 @@ def sub_QDA_2d_score(
 
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = np.log(np.abs(det_covF / det_covT + 1e-300)) / 2 - 1
-    kl_d += (
-        (
-            classF_var_2 * classT_var_1
-            + classF_var_1 * classT_var_2
-            - 2 * classT_cov * classF_cov
-        )
-        / det_covF
-        / 2
-    )
+    kl_d += (classF_var_2 * classT_var_1 + classF_var_1 * classT_var_2 - 2 * classT_cov * classF_cov) / det_covF / 2
     dmean = mean_T - mean_F
     kl_d += (
-        (
-            dmean[0] ** 2 * classF_var_2
-            + dmean[1] ** 2 * classF_var_1
-            - 2 * dmean[0] * dmean[1] * classF_cov
-        )
+        (dmean[0] ** 2 * classF_var_2 + dmean[1] ** 2 * classF_var_1 - 2 * dmean[0] * dmean[1] * classF_cov)
         / det_covF
         / 2
     )
@@ -119,9 +109,7 @@ def sub_LDA_2d_fit(X, y):
     mean_T_0, mean_T_1 = np.mean(X[0, y]), np.mean(X[1, y])
     mean_F_0, mean_F_1 = np.mean(X[0, ~y]), np.mean(X[1, ~y])
     dmean_0, dmean_1 = mean_T_0 - mean_F_0, mean_T_1 - mean_F_1
-    c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (
-        mean_F_1**2 - mean_T_1**2
-    ) * var_0 / 2
+    c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (mean_F_1**2 - mean_T_1**2) * var_0 / 2
     c += (mean_T_0 * mean_T_1 - mean_F_0 * mean_F_1) * cov
     c -= (var_0 * var_1 - cov**2) * (np.log(pi_F / pi_T))
     return var_0, var_1, cov, dmean_0, dmean_1, c
@@ -134,9 +122,7 @@ def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
     score = np.sum(((a * X[0] + b * X[1] + c) > 0) == y) / X.shape[1]
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = (
-        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov)
-        / (var_0 * var_1 - cov**2 + 1e-300)
-        / 2
+        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-300) / 2
     )
     return score, kl_d
 
@@ -154,12 +140,8 @@ def DT_2d(X, y):
 @njit(error_model="numpy")
 def sub_DT_2d_fit(x, y):
     # root node
-    border_0, entropy_0, area_predict_0, entropy_0_0, entropy_0_1 = sub_DT_1d_fit(
-        x[0], y
-    )
-    border_1, entropy_1, area_predict_1, entropy_1_0, entropy_1_1 = sub_DT_1d_fit(
-        x[1], y
-    )
+    border_0, entropy_0, area_predict_0, entropy_0_0, entropy_0_1 = sub_DT_1d_fit(x[0], y)
+    border_1, entropy_1, area_predict_1, entropy_1_0, entropy_1_1 = sub_DT_1d_fit(x[1], y)
     if entropy_0 < entropy_1:
         root_node = 0
         root_border = border_0
@@ -275,39 +257,23 @@ def sub_DT_2d_score(
 
 ### Hull_2d
 @njit(error_model="numpy")
-def sub_Hull_2d(
-    base_x, other_x, not_is_in, arange, base_index1, base_index2, base_x_mask
-):
+def sub_Hull_2d(base_x, other_x, not_is_in, arange, base_index1, base_index2, base_x_mask):
     if np.any(not_is_in):
         copy_base_x_mask = base_x_mask.copy()
         base_vec = base_x[:, base_index1] - base_x[:, base_index2]
-        bec_xy = base_x[:, arange[copy_base_x_mask]] - np.expand_dims(
-            base_x[:, base_index2], axis=1
-        )
+        bec_xy = base_x[:, arange[copy_base_x_mask]] - np.expand_dims(base_x[:, base_index2], axis=1)
         cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
         if np.any(cross > 0):
             next_point = np.argmax(cross)
             next_index = arange[copy_base_x_mask][next_point]
             copy_base_x_mask[arange[copy_base_x_mask][cross <= 0]] = False
             copy_base_x_mask[next_index] = False
-            use_other_x = other_x[:, not_is_in] - np.expand_dims(
-                base_x[:, base_index2], axis=1
-            )
+            use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index2], axis=1)
             num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
             num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
-            num_is_in[1] = (
-                -bec_xy[1, next_point] * use_other_x[0]
-                + bec_xy[0, next_point] * use_other_x[1]
-            )
-            num_is_in /= (
-                bec_xy[0, next_point] * base_vec[1]
-                - base_vec[0] * bec_xy[1, next_point]
-            )
-            not_is_in[not_is_in] = (
-                ((num_is_in[0] + num_is_in[1]) > 1)
-                | (0 > num_is_in[0])
-                | (0 > num_is_in[1])
-            )
+            num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
+            num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
+            not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
             sub_Hull_2d(
                 base_x,
                 other_x,
@@ -361,9 +327,7 @@ def Hull_2d(X, y):
         index_x_min,
         copy_classT_X_mask,
     )
-    sub_Hull_2d(
-        classT_X, classF_X, not_is_in, arange, index_x_min, index_x_max, classT_X_mask
-    )
+    sub_Hull_2d(classT_X, classF_X, not_is_in, arange, index_x_min, index_x_max, classT_X_mask)
     ans = np.sum(~not_is_in)
     index_x_max = np.argmax(classF_X[0])
     index_x_min = np.argmin(classF_X[0])
@@ -382,11 +346,81 @@ def Hull_2d(X, y):
         index_x_min,
         copy_classF_X_mask,
     )
-    sub_Hull_2d(
-        classF_X, classT_X, not_is_in, arange, index_x_min, index_x_max, classF_X_mask
-    )
+    sub_Hull_2d(classF_X, classT_X, not_is_in, arange, index_x_min, index_x_max, classF_X_mask)
     ans += np.sum(~not_is_in)
     return 1 - (ans / (y.shape[0])), 0
+
+
+def KNN_2d(k=5, name=None):
+    @njit(error_model="numpy")
+    def KNN_2d(x, y):
+        n_samples = y.shape[0]
+        count, loss = 0, 0
+        for i in range(n_samples):
+            d = np.linalg.norm((x.T - x[:, i]).T, ord=2, axis=0)
+            index = np.argsort(d)[: k + 1]
+            index = index[index != i][:k]
+            count_T = int(np.sum(y[index]))
+            count_F = k - count_T
+            if count_T > count_F:
+                if y[i]:
+                    count += 1
+                loss -= count_F
+            elif count_T < count_F:
+                if not y[i]:
+                    count += 1
+                loss -= count_T
+            else:  # count_T==count_F
+                loss -= count_T
+        return count / n_samples, loss / n_samples / k
+
+    model = KNN_2d
+    if name is None:
+        model.__name__ = f"KNN_k_{k}_2d"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
+
+
+@njit(error_model="numpy")
+def sub_KNN_2d_fit(x, y):
+    return x, y
+
+
+def sub_KNN_2d_score(k=5, name=None):
+    @njit(error_model="numpy")
+    def sub_KNN_2d_score(x, y, train_x, train_y):
+        n_samples = y.shape[0]
+        count, loss = 0, 0
+        for i in range(n_samples):
+            d = np.linalg.norm((train_x.T - x[:, i]).T, ord=2, axis=0)
+            index = np.argsort(d)[:k]
+            count_T = int(np.sum(train_y[index]))
+            count_F = k - count_T
+            if count_T > count_F:
+                if y[i]:
+                    count += 1
+                loss -= count_F
+            elif count_T < count_F:
+                if not y[i]:
+                    count += 1
+                loss -= count_T
+            else:  # count_T==count_F
+                loss -= count_T
+        return count / n_samples, loss / n_samples / k
+
+    model = sub_KNN_2d_score
+    if name is None:
+        model.__name__ = f"sub_KNN_k_{k}_2d_score"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
 
 
 ### make CV_model
@@ -410,11 +444,13 @@ def CV_model_2d(sub_func_fit, sub_func_score, k=5, name=None):
         return sum_score1 / k, sum_score2 / k
 
     model = CrossValidation_2d
-    if not name is None:
+    if name is None:
+        base_model_name = sub_func_fit.__name__
+        base_model_name = base_model_name.replace("sub_", "").replace("_2d_fit", "")
+        model.__name__ = f"CV_k_{k}_{base_model_name}_2d"
+    else:
         if not isinstance(name, str):
-            raise TypeError(
-                f"Expected variable 'name' to be of type str, but got {type(name)}."
-            )
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
         else:
             model.__name__ = name
     return model
