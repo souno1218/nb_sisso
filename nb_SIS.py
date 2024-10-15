@@ -31,6 +31,73 @@ def SIS(
     log_interval=10,
     logger=None,
 ):
+    """
+    Select all combinations from the given initial features x and operators and create new features.
+    Throw them into model_score and save the how_many_to_save features in order of increasing score.
+
+    Parameters
+    ----------
+    x : ndarray of shape (n_features,n_samples)
+        Training data.
+    y : ndarray of shape (n_samples)
+        Target values or labels.
+    model_score : callable
+        Must be a dedicated function for x ndim=1.
+        Func that returns a score,jit compilation by numba is required.
+        Parameters
+            - x : ndarray of shape (n_samples)
+                Combination created from List_x.
+            - y : ndarray of shape (n_samples)
+                Target values or labels.
+        Returns
+            - score1 : float
+                Priority is score1 > score2.
+                Values for which greater is better, such as negative mean-square error or accuracies.
+            - score2 : float
+                Compare score2 if score1 is the same.
+                Values for which greater is better, such as negative mean-square error or accuracies.
+    units : ndarray of shape (n_features,n_unit_types), optional
+        Information on units.
+        Must be int64.
+        If the feature x is {0: m/s^2, 1: a.u., 2: m^2}, then set the following
+            array( [[ 1, -2],  <- index 0
+                    [ 0,  0],  <- index 1
+                    [ 2,  0]]) <- index 2
+                      ^   ^
+                    [ m,  s]
+        If not set, it will be np.zeros((n_features,1),dtype=int64).
+    how_many_to_save : int, optional
+        Specify how many combinations to save up to the top, by default 50000.
+    is_use_1 : bool, optional
+        Whether to add np.ones((n_samples),dtype=float64) to the initial features, by default False.
+    max_n_op : int, optional
+        Maximum operator quantity, by default 5.
+    operators_to_use : list, optional
+        Operators to be considered, by default ["+", "-", "*", "/"].
+        Choose from ["+","-","*","/","*-1","**-1","**2","sqrt","| |","**3","cbrt","**6","exp","exp-","log","sin","cos","scd"].
+    num_threads : int, optional
+        Number of CPU cores used. If not set, all cpu cores are used.
+    verbose : bool, optional
+        Print log or, by default True.
+        This will be ignored if logger is set.
+    is_progress : bool, optional
+        Use progress bar or, by default False.
+    log_interval : int, optional
+        Time interval for writing out progress, by default 10 seconds.
+        This will be ignored if is_progress is True.
+    logger : _type_, optional
+        A logger instance to handle logging.
+        It is expected to be a standard Python `logging.Logger` instance.
+        If not set, create a logger with only a StreamHandler.
+
+    Returns
+    ----------
+    score_list : ndarray of shape (how_many_to_save)
+        Sorted scores.
+    eq_list : ndarray of shape (how_many_to_save,2*max_n_op+1)
+        Encrypted expression corresponding to score_list.
+        utils.decryption can be used to decrypt the data.
+    """
 
     Nan_number = -100
 
@@ -62,6 +129,13 @@ def SIS(
 
     # y
     dtype_shape_check(logger, y, "y", ndim=1, dict_index_len={0: x.shape[1]})
+
+    # shuffle
+    index = np.arange(x.shape[1])
+    rng = np.random.default_rng()
+    rng.shuffle(index)
+    x = x.T[index].T.copy()
+    y = y[index].copy()
 
     # units
     if units is None:
@@ -103,6 +177,13 @@ def SIS(
     }
 
     type_check(logger, operators_to_use, "operators_to_use", list)
+    for i in operators_to_use:
+        type_check(logger, operators_to_use, "operators_to_use[i]", str)
+        if not i in dict_op_str_to_num.keys():
+            raise_and_log(
+                logger,
+                ValueError(f"operators_to_use must be chosen from {dict_op_str_to_num.keys()}"),
+            )
 
     # use_binary_op
     use_binary_op = []
@@ -124,6 +205,11 @@ def SIS(
     logger.info(f"use_unary_op={use_unary_op}")
     str_units = " , ".join([str(units[i]) for i in range(units.shape[0])])
     logger.info(f"units={str_units}")
+
+    # compiling
+    logger.info(f"compiling")
+    compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, model_score, is_progress, logger)
+    logger.info(f"END, compile")
 
     save_score_list = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
     save_eq_list = np.full((num_threads, how_many_to_save, 2 * max_n_op + 1), Nan_number, dtype="int8")
@@ -246,6 +332,25 @@ def SIS(
     return_eq_list = save_eq_list.reshape(-1, 2 * max_n_op + 1)[index]
     logger.info(f"total time={datetime.datetime.now()-time0}")
     return return_score_list, return_eq_list
+
+
+def compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, model_score, is_progress, logger):
+    save_score_list = np.full((num_threads, 1, 2), np.finfo(np.float64).min, dtype="float64")
+    save_eq_list = np.full((num_threads, 1, 2 * 1 + 1), -100, dtype="int8")
+    min_index_list = np.zeros(num_threads, dtype="int64")
+    border_list = np.full((num_threads, 2), np.finfo(np.float64).min, dtype="float64")
+    save = (save_score_list, save_eq_list, min_index_list, border_list)
+    used = sub_loop_non_op(x, y, units, is_use_1, model_score, *save)
+    if is_progress:
+        with ProgressBar(total=0, leave=False, disable=True) as progress:
+            sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
+        with ProgressBar(total=0, leave=False, disable=True) as progress:
+            sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
+    else:
+        with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
+            sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
+        with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
+            sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
 
 
 @njit(error_model="numpy")
