@@ -175,32 +175,32 @@ def sub_DT_1d_score(x, y, border, tot_entropy, area_predict, entropy0, entropy1)
 
 
 ### KNN
-def KNN_1d(k=5, name=None):
+def make_KNN_1d(k=5, name=None):
     @njit(error_model="numpy")
     def KNN_1d(x, y):
         n_samples = y.shape[0]
         sort_index = np.argsort(x)
-        sorted_x = x[sort_index]
-        sorted_y = y[sort_index]
-
-        count, loss = 0, 0
+        sorted_x = x[sort_index].copy()
+        sorted_y = y[sort_index].copy()
+        entropy, count = 0, 0
+        p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
         for i in range(n_samples):
             d = np.abs(sorted_x[max(i - k, 0) : min(i + k + 1, n_samples)] - sorted_x[i])
             index = max(i - k, 0) + np.argsort(d)[: k + 1]
             index = index[index != i][:k]
             count_T = int(np.sum(sorted_y[index]))
             count_F = k - count_T
-            if count_T > count_F:
-                if sorted_y[i]:
+            if sorted_y[i]:
+                entropy += p_arr[count_T]
+                if count_T > count_F:
                     count += 1
-                loss -= count_F
-            elif count_T < count_F:
-                if not sorted_y[i]:
+            else:  # if not sorted_y[i]:
+                entropy += p_arr[count_F]
+                if count_T < count_F:
                     count += 1
-                loss -= count_T
-            else:  # count_T==count_F
-                loss -= count_T
-        return count / n_samples, loss / n_samples / k
+        count /= n_samples
+        entropy /= n_samples
+        return -entropy, count
 
     model = KNN_1d
     if name is None:
@@ -218,27 +218,28 @@ def sub_KNN_1d_fit(x, y):
     return x, y
 
 
-def sub_KNN_1d_score(k=5, name=None):
+def make_sub_KNN_1d_score(k=5, name=None):
     @njit(error_model="numpy")
     def sub_KNN_1d_score(x, y, train_x, train_y):
         n_samples = y.shape[0]
-        count, loss = 0, 0
+        entropy, count = 0, 0
+        p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
         for i in range(n_samples):
             d = np.abs(train_x - x[i])
-            index = np.argsort(d)[:k]
+            index = np.argpartition(d, kth=k)[:k]  # ??
             count_T = int(np.sum(train_y[index]))
             count_F = k - count_T
-            if count_T > count_F:
-                if y[i]:
+            if y[i]:
+                entropy += p_arr[count_T]
+                if count_T > count_F:
                     count += 1
-                loss -= count_F
-            elif count_T < count_F:
-                if not y[i]:
+            else:  # if not y[i]:
+                entropy += p_arr[count_F]
+                if count_T < count_F:
                     count += 1
-                loss -= count_T
-            else:  # count_T==count_F
-                loss -= count_T
-        return count / n_samples, loss / n_samples / k
+        count /= n_samples
+        entropy /= n_samples
+        return -entropy, count
 
     model = sub_KNN_1d_score
     if name is None:
@@ -249,6 +250,36 @@ def sub_KNN_1d_score(k=5, name=None):
         else:
             model.__name__ = name
     return model
+
+
+### Weighted KNN_2d
+
+
+@njit(error_model="numpy")
+def WKNN_1d(x, y):
+    n_samples = y.shape[0]
+    w = 1 / ((np.repeat(x, n_samples).reshape((n_samples, n_samples)) - x) ** 2 + 1e-300)
+    for i in range(n_samples):
+        w[i, i] = 0
+    p_T = p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))
+    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+    return -entropy, count
+
+
+@njit(error_model="numpy")
+def sub_WKNN_1d_fit(x, y):
+    return x, y
+
+
+@njit(error_model="numpy")
+def sub_WKNN_1d_score(x, y, train_x, train_y):
+    n_samples = y.shape[0]
+    w = 1 / ((np.repeat(train_x, n_samples).reshape((train_x.shape[0], n_samples)) - x) ** 2 + 1e-300)
+    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
+    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+    return -entropy, count
 
 
 ### make CV_model

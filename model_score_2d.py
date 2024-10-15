@@ -255,47 +255,124 @@ def sub_DT_2d_score(
     return score, -entropy
 
 
+### KNN_2d
+def make_KNN_2d(k=5, name=None):
+    @njit(error_model="numpy")
+    def KNN_2d(x, y):
+        n_samples = y.shape[0]
+        entropy, count = 0, 0
+        p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
+        for i in range(n_samples):
+            d = (x[0] - x[0, i]) ** 2 + (x[1] - x[1, i]) ** 2
+            index = np.argpartition(d, kth=k + 1)[: k + 1]
+            count_T = int(np.sum(y[index]))
+            if i in index:
+                count_T -= int(y[i])
+            else:
+                count_T -= int(y[index[np.argmax(d[index])]])
+            count_F = k - count_T
+            if y[i]:
+                entropy += p_arr[count_T]
+                if count_T > count_F:
+                    count += 1
+            else:  # if not y[i]:
+                entropy += p_arr[count_F]
+                if count_T < count_F:
+                    count += 1
+        count /= n_samples
+        entropy /= n_samples
+        return -entropy, count
+
+    model = KNN_2d
+    if name is None:
+        model.__name__ = f"KNN_k_{k}_2d"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
+
+
+@njit(error_model="numpy")
+def sub_KNN_2d_fit(x, y):
+    return x, y
+
+
+def make_sub_KNN_2d_score(k=5, name=None):
+    @njit(error_model="numpy")
+    def sub_KNN_2d_score(x, y, train_x, train_y):
+        n_samples = y.shape[0]
+        entropy, count = 0, 0
+        p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
+        for i in range(n_samples):
+            d = (train_x[0] - x[0, i]) ** 2 + (train_x[1] - x[1, i]) ** 2
+            index = np.argpartition(d, kth=k)[:k]
+            count_T = int(np.sum(train_y[index]))
+            count_F = k - count_T
+            if y[i]:
+                entropy += p_arr[count_T]
+                if count_T > count_F:
+                    count += 1
+            else:  # if not y[i]:
+                entropy += p_arr[count_F]
+                if count_T < count_F:
+                    count += 1
+        count /= n_samples
+        entropy /= n_samples
+        return -entropy, count
+
+    model = sub_KNN_2d_score
+    if name is None:
+        model.__name__ = f"sub_KNN_k_{k}_2d_score"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
+
+
+### Weighted KNN_2d
+
+
+@njit(error_model="numpy")
+def WKNN_2d(x, y):
+    n_samples = y.shape[0]
+    d = (np.repeat(x[0], n_samples).reshape((n_samples, n_samples)) - x[0]) ** 2
+    d += (np.repeat(x[1], n_samples).reshape((n_samples, n_samples)) - x[1]) ** 2
+    w = 1 / (d + 1e-300)
+    for i in range(n_samples):
+        w[i, i] = 0
+    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))  # / np.sum(w, axis=0)
+    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+    return -entropy, count
+
+
+@njit(error_model="numpy")
+def sub_WKNN_2d_fit(x, y):
+    return x, y
+
+
+@njit(error_model="numpy")
+def sub_WKNN_2d_score(x, y, train_x, train_y):
+    n_samples = y.shape[0]
+    d = (np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** 2
+    d += (np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** 2
+    w = 1 / (d + 1e-300)
+    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
+    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+    return -entropy, count
+
+
 ### Hull_2d
-@njit(error_model="numpy")
-def sub_Hull_2d(base_x, other_x, not_is_in, arange, base_index1, base_index2, base_x_mask):
-    if np.any(not_is_in):
-        copy_base_x_mask = base_x_mask.copy()
-        base_vec = base_x[:, base_index1] - base_x[:, base_index2]
-        bec_xy = base_x[:, arange[copy_base_x_mask]] - np.expand_dims(base_x[:, base_index2], axis=1)
-        cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
-        if np.any(cross > 0):
-            next_point = np.argmax(cross)
-            next_index = arange[copy_base_x_mask][next_point]
-            copy_base_x_mask[arange[copy_base_x_mask][cross <= 0]] = False
-            copy_base_x_mask[next_index] = False
-            use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index2], axis=1)
-            num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
-            num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
-            num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
-            num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
-            not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
-            sub_Hull_2d(
-                base_x,
-                other_x,
-                not_is_in,
-                arange,
-                next_index,
-                base_index2,
-                copy_base_x_mask,
-            )
-            sub_Hull_2d(
-                base_x,
-                other_x,
-                not_is_in,
-                arange,
-                base_index1,
-                next_index,
-                copy_base_x_mask,
-            )
+KNN_2d_for_Hull = make_KNN_2d(k=1)
 
 
 @njit(error_model="numpy")
-def Spearman_coefficient(X, y):
+def Spearman_coefficient(X):
     index0 = np.argsort(np.argsort(X[0]))
     index1 = np.argsort(np.argsort(X[1]))
     n = index0.shape[0]
@@ -304,9 +381,25 @@ def Spearman_coefficient(X, y):
 
 
 @njit(error_model="numpy")
+def checker(X, y):
+    X_T = X[:, y].copy()
+    X_F = X[:, ~y].copy()
+    min_d = np.empty(y.shape[0], dtype="float64")
+    for i in range(y.shape[0]):
+        if y[i]:
+            min_d[i] = np.sqrt(np.min((X_F[0] - X[0, i]) ** 2 + (X_F[1] - X[1, i]) ** 2))
+        else:
+            min_d[i] = np.sqrt(np.min((X_T[0] - X[0, i]) ** 2 + (X_T[1] - X[1, i]) ** 2))
+    var_1, var_2, _ = jit_cov(X)
+    sum_min_d = np.mean(np.sort(min_d)[: (4 * y.shape[0]) // 5])
+    normalized_sum_min_d = sum_min_d / np.sqrt(var_1 + var_2)
+    return normalized_sum_min_d
+
+
+@njit(error_model="numpy")
 def Hull_2d(X, y):
     # Spearman rank correlation coefficient
-    r_R = Spearman_coefficient(X, y)
+    r_R = Spearman_coefficient(X)
     if r_R > 0.9:
         return 0, 0
     classT_X, classF_X = X[:, y], X[:, ~y]
@@ -348,79 +441,51 @@ def Hull_2d(X, y):
     )
     sub_Hull_2d(classF_X, classT_X, not_is_in, arange, index_x_min, index_x_max, classF_X_mask)
     ans += np.sum(~not_is_in)
-    return 1 - (ans / (y.shape[0])), 0
-
-
-def KNN_2d(k=5, name=None):
-    @njit(error_model="numpy")
-    def KNN_2d(x, y):
-        n_samples = y.shape[0]
-        count, loss = 0, 0
-        for i in range(n_samples):
-            d = np.linalg.norm((x.T - x[:, i]).T, ord=2, axis=0)
-            index = np.argsort(d)[: k + 1]
-            index = index[index != i][:k]
-            count_T = int(np.sum(y[index]))
-            count_F = k - count_T
-            if count_T > count_F:
-                if y[i]:
-                    count += 1
-                loss -= count_F
-            elif count_T < count_F:
-                if not y[i]:
-                    count += 1
-                loss -= count_T
-            else:  # count_T==count_F
-                loss -= count_T
-        return count / n_samples, loss / n_samples / k
-
-    model = KNN_2d
-    if name is None:
-        model.__name__ = f"KNN_k_{k}_2d"
-    else:
-        if not isinstance(name, str):
-            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
-        else:
-            model.__name__ = name
-    return model
+    score = 1 - (ans / (y.shape[0]))
+    # KNN check
+    if score > 0.5:
+        KNN_score, _ = KNN_2d_for_Hull(X, y)
+        if KNN_score + 0.2 < score:
+            return 0, 0
+    return score, 0
 
 
 @njit(error_model="numpy")
-def sub_KNN_2d_fit(x, y):
-    return x, y
-
-
-def sub_KNN_2d_score(k=5, name=None):
-    @njit(error_model="numpy")
-    def sub_KNN_2d_score(x, y, train_x, train_y):
-        n_samples = y.shape[0]
-        count, loss = 0, 0
-        for i in range(n_samples):
-            d = np.linalg.norm((train_x.T - x[:, i]).T, ord=2, axis=0)
-            index = np.argsort(d)[:k]
-            count_T = int(np.sum(train_y[index]))
-            count_F = k - count_T
-            if count_T > count_F:
-                if y[i]:
-                    count += 1
-                loss -= count_F
-            elif count_T < count_F:
-                if not y[i]:
-                    count += 1
-                loss -= count_T
-            else:  # count_T==count_F
-                loss -= count_T
-        return count / n_samples, loss / n_samples / k
-
-    model = sub_KNN_2d_score
-    if name is None:
-        model.__name__ = f"sub_KNN_k_{k}_2d_score"
-    else:
-        if not isinstance(name, str):
-            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
-        else:
-            model.__name__ = name
-    return model
+def sub_Hull_2d(base_x, other_x, not_is_in, arange, base_index1, base_index2, base_x_mask):
+    if np.any(not_is_in):
+        copy_base_x_mask = base_x_mask.copy()
+        base_vec = base_x[:, base_index1] - base_x[:, base_index2]
+        bec_xy = base_x[:, arange[copy_base_x_mask]] - np.expand_dims(base_x[:, base_index2], axis=1)
+        cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
+        if np.any(cross > 0):
+            next_point = np.argmax(cross)
+            next_index = arange[copy_base_x_mask][next_point]
+            copy_base_x_mask[arange[copy_base_x_mask][cross <= 0]] = False
+            copy_base_x_mask[next_index] = False
+            use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index2], axis=1)
+            num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
+            num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
+            num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
+            num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
+            not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
+            sub_Hull_2d(
+                base_x,
+                other_x,
+                not_is_in,
+                arange,
+                next_index,
+                base_index2,
+                copy_base_x_mask,
+            )
+            sub_Hull_2d(
+                base_x,
+                other_x,
+                not_is_in,
+                arange,
+                base_index1,
+                next_index,
+                copy_base_x_mask,
+            )
 
 
 ### make CV_model
