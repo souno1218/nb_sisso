@@ -178,7 +178,7 @@ def SIS(
 
     type_check(logger, operators_to_use, "operators_to_use", list)
     for i in operators_to_use:
-        type_check(logger, operators_to_use, "operators_to_use[i]", str)
+        type_check(logger, i, "operators_to_use[i]", str)
         if not i in dict_op_str_to_num.keys():
             raise_and_log(
                 logger,
