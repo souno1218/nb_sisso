@@ -29,7 +29,8 @@ def SO(
     logger=None,
 ):
     """
-    select all conmbinations from the given ndarray(list_x), throw them into model_score, and store how_many_to_save in order of size.
+    Select all combinations from the given ndarray(list_x), throw them into the model_score,
+    and save the how_many_to_save pieces in the order of increasing score.
 
     Parameters
     ----------
@@ -37,61 +38,51 @@ def SO(
         Training data.
         Even if you choose more than one (e.g., two) from a single array, please list.
         which_arr_to_choose_from sets which elements of the list are combined.
-
     y : ndarray of shape (n_samples)
-        Target values.
-
+        Target values or labels.
     model_score : callable
         func that returns a score,jit compilation by numba is required.
         Parameters
             - x : ndarray of shape (combination_dim,n_samples)
                 Combination created from List_x.
             - y : ndarray of shape (n_samples)
-                Target values.
+                Target values or labels.
         Returns
             - score1 : float
-                Priority is score1>score2.
+                Priority is score1 > score2.
                 Values for which greater is better, such as negative mean-square error or accuracies.
             - score2 : float
-                Compare score2 if score1 is the same
+                Compare score2 if score1 is the same.
                 Values for which greater is better, such as negative mean-square error or accuracies.
-
     which_arr_to_choose_from : dict
         Decide here how many to choose.
         keys set all combination_dim from 1({1:0,~~combination_dim:0).
         Key starts at 1.
         Values specify the index of list_x.
         ex) combination_dim=3 , {1:1,2:2,3:3}
-
-    combination_dim : int
-        Number of equations to combine.
-
-    num_threads : int
+    combination_dim : int, optional
+        Number of equations to combine, by default 2.
+    num_threads : int, optional
         Number of CPU cores used. If not set, all cpu cores are used.
-
-    how_many_to_save : int
-        Specify how many combinations to save up to the top.
-
-    verbose : bool
-        An optional parameter that will be ignored if logger is set.
-        Print log or.
-
-    is_progress : bool
-        Use progress bar or.
-
-    log_interval : int or float
-        An optional parameter.This will be ignored if is_progress is True.
-        Time interval for writing out progress.
-
-    logger : logging.Logger
-        A logger instance to handle logging. It is expected to be a standard.
-        Python `logging.Logger` instance.
+    how_many_to_save : int, optional
+        Specify how many combinations to save up to the top, by default 50.
+    verbose : bool, optional
+        Print log or, by default True.
+        This will be ignored if logger is set.
+    is_progress : bool, optional
+        Use progress bar or, by default False.
+    log_interval : int or float, optional
+        Time interval for writing out progress, by default 10 seconds.
+        This will be ignored if is_progress is True.
+    logger : logging.Logger, optional
+        A logger instance to handle logging.
+        It is expected to be a standard Python `logging.Logger` instance.
+        If not set, create a logger with only a StreamHandler.
 
     Returns
     ----------
     score_list : ndarray of shape (how_many_to_save)
         sorted score
-
     index_list : ndarray of shape (how_many_to_save,combination_dim)
         index in list_x corresponding to score_list
     """
@@ -138,7 +129,18 @@ def SO(
     for i in range(len(list_x)):
         arr_x[i, : list_x[i].shape[0]] = list_x[i]
 
+    # y
+    dtype_shape_check(logger, y, "y", ndim=1, dict_index_len={0: arr_x.shape[2]})
+
+    # shuffle
+    index = np.arange(arr_x.shape[2])
+    rng = np.random.default_rng()
+    rng.shuffle(index)
+    arr_x = arr_x[:, :, index].copy()
+    y = y[index].copy()
+
     # which_arr_to_choose_from
+    type_check_which_arr_to_choose_from(logger, combination_dim, which_arr_to_choose_from, list_x)
     arr_which_arr_to_choose_from = np.empty(combination_dim, dtype="int64")
     for i in range(combination_dim):
         arr_which_arr_to_choose_from[i] = which_arr_to_choose_from[i + 1]
@@ -149,6 +151,11 @@ def SO(
     logger.info(f"which_arr_to_choose_from={which_arr_to_choose_from}")
     repeat = loop_counter(arr_x, arr_which_arr_to_choose_from)
     logger.info(f"loop={repeat}")
+
+    # compiling
+    logger.info(f"compiling")
+    compiling(num_threads, arr_which_arr_to_choose_from, arr_x, y, model_score, is_progress, logger)
+    logger.info(f"END, compile")
 
     time0 = datetime.datetime.now()
     if is_progress:
@@ -183,17 +190,27 @@ def SO(
 def type_check_which_arr_to_choose_from(logger, combination_dim, which_arr_to_choose_from, list_x):
     type_check(logger, which_arr_to_choose_from, "which_arr_to_choose_from", dict)
     keys = list(which_arr_to_choose_from.keys())
-    for x in keys:
-        type_check(logger, x, "which_arr_to_choose_from.key", int)
-    if 0 in keys:
-        raise  # raise_and_log(logger,
-    if sorted(keys) != list(range(1, max(keys))):
-        raise  # raise_and_log(logger,
+    for i in keys:
+        type_check(logger, i, "which_arr_to_choose_from.keys", int)
+    Expected_keys = list(range(1, combination_dim + 1))
+    if sorted(keys) != Expected_keys:
+        raise_and_log(
+            logger, ValueError(f"Expected which_arr_to_choose_from.keys to be {Expected_keys}, but got {keys}.")
+        )
     values = list(which_arr_to_choose_from.values())
-    if not all(isinstance(x, int) for x in values):
-        raise  # raise_and_log(logger,
+    for i in values:
+        type_check(logger, i, "which_arr_to_choose_from.values", int)
     if max(values) > len(list_x) - 1:
-        raise  # raise_and_log(logger,
+        raise_and_log(logger, ValueError("which_arr_to_choose_from.values must be less than or equal to len(list_x)-1"))
+
+
+def compiling(num_threads, arr_which_arr_to_choose_from, arr_x, y, model_score, is_progress, logger):
+    if is_progress:
+        with ProgressBar(total=0, leave=False, disable=True) as p:
+            _ = SO_loop(num_threads, arr_x[:, :5], y, 1, model_score, arr_which_arr_to_choose_from, p)
+    else:
+        with loop_log(logger, interval=10000, tot_loop=0, header="") as p:
+            _ = SO_loop(num_threads, arr_x[:, :5], y, 1, model_score, arr_which_arr_to_choose_from, p)
 
 
 def loop_counter(arr_x, arr_which_arr_to_choose_from):
@@ -211,8 +228,8 @@ def make_check_list(arr_which_arr_to_choose_from):
     unique_arr = np.unique(arr_which_arr_to_choose_from)
     arange = np.arange(arr_which_arr_to_choose_from.shape[0])
     n = 0
-    for i in unique_arr:
-        same_index = arange[arr_which_arr_to_choose_from == i]
+    for j in unique_arr:
+        same_index = arange[arr_which_arr_to_choose_from == j]
         if same_index.shape[0] > 1:
             sorted_index = np.sort(same_index)
             for i in range(sorted_index.shape[0] - 1):
