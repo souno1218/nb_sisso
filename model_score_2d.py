@@ -344,6 +344,7 @@ def WKNN_2d(x, y):
     w = 1 / (d + 1e-300)
     for i in range(n_samples):
         w[i, i] = 0
+    w /= np.sum(w, axis=0)
     p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))  # / np.sum(w, axis=0)
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
@@ -361,6 +362,7 @@ def sub_WKNN_2d_score(x, y, train_x, train_y):
     d = (np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** 2
     d += (np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** 2
     w = 1 / (d + 1e-300)
+    w /= np.sum(w, axis=0)
     p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples

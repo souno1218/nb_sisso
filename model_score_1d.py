@@ -75,7 +75,7 @@ def sub_QDA_1d_score(x, y, mu_T, mu_F, sigma_T, sigma_F, value2):
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = (sigma_T + (mu_T - mu_F) ** 2) / 2 / sigma_F - 0.5
     kl_d += np.log(sigma_F / sigma_T) / 2
-    return np.sum((value > 0) == y) / y.shape[0], kl_d
+    return score, kl_d
 
 
 ### Hull
@@ -253,14 +253,13 @@ def make_sub_KNN_1d_score(k=5, name=None):
 
 
 ### Weighted KNN_2d
-
-
 @njit(error_model="numpy")
 def WKNN_1d(x, y):
     n_samples = y.shape[0]
     w = 1 / ((np.repeat(x, n_samples).reshape((n_samples, n_samples)) - x) ** 2 + 1e-300)
     for i in range(n_samples):
         w[i, i] = 0
+    w /= np.sum(w, axis=0)
     p_T = p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
@@ -276,6 +275,7 @@ def sub_WKNN_1d_fit(x, y):
 def sub_WKNN_1d_score(x, y, train_x, train_y):
     n_samples = y.shape[0]
     w = 1 / ((np.repeat(train_x, n_samples).reshape((train_x.shape[0], n_samples)) - x) ** 2 + 1e-300)
+    w /= np.sum(w, axis=0)
     p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
