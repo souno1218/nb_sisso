@@ -1,7 +1,74 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from numba import njit, prange, set_num_threads, objmode
+from scipy import integrate
+from numba import njit, prange
+
+
+def decryption(equation, columns=None):
+    if columns is None:
+        columns = [chr(i + 97) for i in range(np.max(equation))]
+    stack = []
+    if equation[0] == -100:
+        return "0"
+    for i in equation:
+        match i:
+            case 0:  # 1
+                stack.append("1")
+            case t if t > 0:  # number
+                stack.append(columns[i - 1])
+            case -1:  # +
+                b, a = stack.pop(), stack.pop()
+                stack.append(f"({a}+{b})")
+            case -2:  # -
+                b, a = stack.pop(), stack.pop()
+                stack.append(f"({a}-{b})")
+            case -3:  # *
+                b, a = stack.pop(), stack.pop()
+                stack.append(f"({a}*{b})")
+            case -4:  # /
+                b, a = stack.pop(), stack.pop()
+                stack.append(f"({a}/{b})")
+            case -5:  # *-1
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}*-1)"
+            case -6:  # ^-1
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**-1)"
+            case -7:  # ^2
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**2)"
+            case -8:  # sqrt
+                stack[len(stack) - 1] = f"np.sqrt({stack[len(stack)-1]})"
+            case -9:  # | |
+                stack[len(stack) - 1] = f"np.abs({stack[len(stack)-1]})"
+            case -10:  # ^3
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**3)"
+            case -11:  # cbrt
+                stack[len(stack) - 1] = f"np.cbrt({stack[len(stack)-1]})"
+            case -12:  # ^6
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**6)"
+            case -13:  # exp
+                stack[len(stack) - 1] = f"np.exp({stack[len(stack)-1]})"
+            case -14:  # exp-
+                stack[len(stack) - 1] = f"np.exp(-1*{stack[len(stack)-1]})"
+            case -15:  # log
+                stack[len(stack) - 1] = f"np.log({stack[len(stack)-1]})"
+            case -16:  # sin
+                stack[len(stack) - 1] = f"np.sin({stack[len(stack)-1]})"
+            case -17:  # cos
+                stack[len(stack) - 1] = f"np.cos({stack[len(stack)-1]})"
+            case -18:  # scd
+                stack[len(stack) - 1] = f"np.scd({stack[len(stack)-1]})"
+    return stack[0]
+
+
+@njit(error_model="numpy", cache=True)  # parallel=True,
+def eq_list_to_num(x, eq_list):
+    return_arr = np.empty((eq_list.shape[0], x.shape[1]))
+    for i in range(eq_list.shape[0]):
+        return_arr[i] = calc_RPN(x, eq_list[i])
+    return return_arr
+
+
+## ------------------ Not use ------------------
 
 
 def raise_and_log(logger, error):
@@ -60,67 +127,6 @@ def argmin_and_min(arr):
             if min_num2 > arr[i, 1]:
                 min_num1, min_num2, min_index = arr[i, 0], arr[i, 1], i
     return min_num1, min_num2, min_index
-
-
-def decryption(equation, columns=None):
-    if columns is None:
-        columns = [chr(i + 97) for i in range(np.max(equation))]
-    stack = []
-    for i in equation:
-        match i:
-            case 0:  # 1
-                stack.append("1")
-            case t if t > 0:  # number
-                stack.append(columns[i - 1])
-            case -1:  # +
-                b, a = stack.pop(), stack.pop()
-                stack.append(f"({a}+{b})")
-            case -2:  # -
-                b, a = stack.pop(), stack.pop()
-                stack.append(f"({a}-{b})")
-            case -3:  # *
-                b, a = stack.pop(), stack.pop()
-                stack.append(f"({a}*{b})")
-            case -4:  # /
-                b, a = stack.pop(), stack.pop()
-                stack.append(f"({a}/{b})")
-            case -5:  # *-1
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}*-1)"
-            case -6:  # ^-1
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**-1)"
-            case -7:  # ^2
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**2)"
-            case -8:  # sqrt
-                stack[len(stack) - 1] = f"np.sqrt({stack[len(stack)-1]})"
-            case -9:  # | |
-                stack[len(stack) - 1] = f"np.abs({stack[len(stack)-1]})"
-            case -10:  # ^3
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**3)"
-            case -11:  # cbrt
-                stack[len(stack) - 1] = f"np.cbrt({stack[len(stack)-1]})"
-            case -12:  # ^6
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}**6)"
-            case -13:  # exp
-                stack[len(stack) - 1] = f"np.exp({stack[len(stack)-1]})"
-            case -14:  # exp-
-                stack[len(stack) - 1] = f"np.exp(-1*{stack[len(stack)-1]})"
-            case -15:  # log
-                stack[len(stack) - 1] = f"np.log({stack[len(stack)-1]})"
-            case -16:  # sin
-                stack[len(stack) - 1] = f"np.sin({stack[len(stack)-1]})"
-            case -17:  # cos
-                stack[len(stack) - 1] = f"np.cos({stack[len(stack)-1]})"
-            case -18:  # scd
-                stack[len(stack) - 1] = f"np.scd({stack[len(stack)-1]})"
-    return stack[0]
-
-
-@njit(error_model="numpy", cache=True)  # parallel=True,
-def eq_list_to_num(x, eq_list):
-    return_arr = np.empty((eq_list.shape[0], x.shape[1]))
-    for i in range(eq_list.shape[0]):
-        return_arr[i] = calc_RPN(x, eq_list[i])
-    return return_arr
 
 
 @njit(error_model="numpy", cache=True)  # ,fastmath=True)
@@ -239,3 +245,13 @@ def jit_cov(X, ddof=1):
     var_2 = np.sum(X_2 * X_2) / (n - ddof)
     cross_cov = np.sum(X_1 * X_2) / (n - ddof)
     return var_1, var_2, cross_cov
+
+
+def p_upper_x(n, x, pattern):
+    def bin(x):
+        # 二項分布の正規近似
+        omega = n / pattern * (1 - 1 / pattern)
+        return np.exp(-((x - n / 1 / pattern) ** 2) / (2 * omega)) / ((2 * np.pi * omega) ** 0.5)
+
+    p, err = integrate.quad(bin, 0, x)
+    return 1 - p**pattern

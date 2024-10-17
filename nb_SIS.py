@@ -13,6 +13,7 @@ from utils import (
     dtype_shape_check,
     type_check,
     is_const,
+    p_upper_x,
 )
 
 
@@ -26,6 +27,7 @@ def SIS(
     max_n_op=5,
     operators_to_use=["+", "-", "*", "/"],
     num_threads=None,
+    fast=False,
     verbose=True,
     is_progress=False,
     log_interval=10,
@@ -63,7 +65,6 @@ def SIS(
             array( [[ 1, -2],  <- index 0
                     [ 0,  0],  <- index 1
                     [ 2,  0]]) <- index 2
-                      ^   ^
                     [ m,  s]
         If not set, it will be np.zeros((n_features,1),dtype=int64).
     how_many_to_save : int, optional
@@ -77,6 +78,11 @@ def SIS(
         Choose from ["+","-","*","/","*-1","**-1","**2","sqrt","| |","**3","cbrt","**6","exp","exp-","log","sin","cos","scd"].
     num_threads : int, optional
         Number of CPU cores used. If not set, all cpu cores are used.
+    fast : bool, optional
+        if pattern <= 4 or how_many_to_save < 10000,This will be ignored.
+        When computing wiHowever, it would be in vain because in many cases good results are not concentrated in one core.
+        However, it would be in vain because in many cases good results are not concentrated in one core.
+        Eliminate wasteful preservation to the extent that it is safe to do so 99.99999% of the time.
     verbose : bool, optional
         Print log or, by default True.
         This will be ignored if logger is set.
@@ -197,8 +203,21 @@ def SIS(
         if i in operators_to_use:
             use_unary_op += [dict_op_str_to_num[i]]
 
+    # fast
+    if fast and (num_threads > 4) and (how_many_to_save >= 10000):
+        mu = how_many_to_save // num_threads
+        arange = np.linspace(mu, mu * 2, 1000)
+        data = np.array([p_upper_x(how_many_to_save, i, num_threads) for i in arange])
+        try:
+            how_many_per1c = int(arange[data < 1e-7][0]) + 1
+        except:
+            how_many_per1c = how_many_to_save
+    else:
+        how_many_per1c = how_many_to_save
+
     logger.info("SIS")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
+    logger.info(f"how_many_to_save_per_1_core={how_many_per1c}, ")
     logger.info(f"max_n_op={max_n_op}, model_score={model_score.__name__}, ")
     logger.info(f"x.shape={x.shape}, is_use_1={is_use_1}")
     logger.info(f"use_binary_op={use_binary_op}, ")
@@ -211,8 +230,8 @@ def SIS(
     compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, model_score, is_progress, logger)
     logger.info(f"END, compile")
 
-    save_score_list = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
-    save_eq_list = np.full((num_threads, how_many_to_save, 2 * max_n_op + 1), Nan_number, dtype="int8")
+    save_score_list = np.full((num_threads, how_many_per1c, 2), np.finfo(np.float64).min, dtype="float64")
+    save_eq_list = np.full((num_threads, how_many_per1c, 2 * max_n_op + 1), Nan_number, dtype="int8")
     min_index_list = np.zeros(num_threads, dtype="int64")
     border_list = np.full((num_threads, 2), np.finfo(np.float64).min, dtype="float64")
 
