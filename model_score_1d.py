@@ -26,6 +26,10 @@ def sub_debug_1d_score(x, y, mu, sigma):
 
 
 ### LDA  ,  https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
+# from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+# LDA(solver="lsqr")
+
+
 @njit(error_model="numpy")  # ,fastmath=True)
 def LDA_1d(x, y):
     args = sub_LDA_1d_fit(x, y)
@@ -52,6 +56,10 @@ def sub_LDA_1d_score(x, y, pi_T, pi_F, mu_T, mu_F, sigma):
 
 
 ### QDA  ,  https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
+# from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis as QDA
+# QDA()
+
+
 @njit(error_model="numpy")
 def QDA_1d(x, y):
     args = sub_QDA_1d_fit(x, y)
@@ -78,32 +86,11 @@ def sub_QDA_1d_score(x, y, mu_T, mu_F, sigma_T, sigma_F, value2):
     return score, kl_d
 
 
-### Hull
-@njit(error_model="numpy")  # ,fastmath=True)
-def Hull_1d(x, y):
-    args = sub_Hull_1d_fit(x, y)
-    return sub_Hull_1d_score(x, y, *args)
-
-
-@njit(error_model="numpy")  # ,fastmath=True)
-def sub_Hull_1d_fit(x, y):
-    min_T, max_T = np.min(x[y]), np.max(x[y])
-    min_F, max_F = np.min(x[~y]), np.max(x[~y])
-    return min_T, max_T, min_F, max_F
-
-
-@njit(error_model="numpy")  # ,fastmath=True)
-def sub_Hull_1d_score(x, y, min_T, max_T, min_F, max_F):
-    TF = np.empty(x.shape[0], dtype="bool")
-    TF[y] = min_F > x[y]
-    TF[y] |= x[y] > max_F
-    TF[~y] = min_T > x[~y]
-    TF[~y] |= x[~y] > max_T
-    len_overlap = min(max_T, max_F) - max(min_T, min_F)
-    return np.mean(TF), -len_overlap
-
-
 ### DT
+# from sklearn.tree import DecisionTreeClassifier as DT
+# DT(criterion='entropy',max_depth=2)
+
+
 @njit(error_model="numpy")
 def DT_1d(x, y):
     border, tot_entropy, area_predict, _, _ = sub_DT_1d_fit(x, y)
@@ -175,6 +162,12 @@ def sub_DT_1d_score(x, y, border, tot_entropy, area_predict, entropy0, entropy1)
 
 
 ### KNN
+# from sklearn.neighbors import KNeighborsClassifier
+# clf = KNeighborsClassifier(n_neighbors=5)
+# from sklearn.model_selection import LeaveOneOut
+# LeaveOneOutCV
+
+
 def make_KNN_1d(k=5, name=None):
     @njit(error_model="numpy")
     def KNN_1d(x, y):
@@ -252,15 +245,22 @@ def make_sub_KNN_1d_score(k=5, name=None):
     return model
 
 
-### Weighted KNN_2d
+### Weighted KNN_1d
+# from sklearn.neighbors import KNeighborsClassifier
+# clf = KNeighborsClassifier(n_neighbors=t.shape[0]-1,weights=lambda d: 1/d**2)
+# from sklearn.model_selection import LeaveOneOut
+# LeaveOneOutCV
+
+
 @njit(error_model="numpy")
 def WKNN_1d(x, y):
     n_samples = y.shape[0]
-    w = 1 / ((np.repeat(x, n_samples).reshape((n_samples, n_samples)) - x) ** 2 + 1e-300)
+    w = np.empty((n_samples, n_samples), dtype="float64")
     for i in range(n_samples):
         w[i, i] = 0
-    w /= np.sum(w, axis=0)
-    p_T = p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))
+        w[i, i + 1 :] = 1 / ((x[i + 1 :] - x[i]) ** 2 + 1e-300)
+        w[i + 1 :, i] = w[i, i + 1 :]
+    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
     return -entropy, count
@@ -280,6 +280,31 @@ def sub_WKNN_1d_score(x, y, train_x, train_y):
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
     return -entropy, count
+
+
+### Hull
+@njit(error_model="numpy")  # ,fastmath=True)
+def Hull_1d(x, y):
+    args = sub_Hull_1d_fit(x, y)
+    return sub_Hull_1d_score(x, y, *args)
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def sub_Hull_1d_fit(x, y):
+    min_T, max_T = np.min(x[y]), np.max(x[y])
+    min_F, max_F = np.min(x[~y]), np.max(x[~y])
+    return min_T, max_T, min_F, max_F
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def sub_Hull_1d_score(x, y, min_T, max_T, min_F, max_F):
+    TF = np.empty(x.shape[0], dtype="bool")
+    TF[y] = min_F > x[y]
+    TF[y] |= x[y] > max_F
+    TF[~y] = min_T > x[~y]
+    TF[~y] |= x[~y] > max_T
+    len_overlap = min(max_T, max_F) - max(min_T, min_F)
+    return np.mean(TF), -len_overlap
 
 
 ### make CV_model

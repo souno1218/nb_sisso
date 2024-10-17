@@ -6,8 +6,52 @@ from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
 
+### LDA_2d
+# from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+# LDA(solver="lsqr")
+
+
+@njit(error_model="numpy", fastmath=True)
+def LDA_2d(X, y):
+    args = sub_LDA_2d_fit(X, y)
+    return sub_LDA_2d_score(X, y, *args)
+
+
+@njit(error_model="numpy", fastmath=True)
+def sub_LDA_2d_fit(X, y):
+    pi_T = np.sum(y) + 1e-300
+    pi_F = np.sum(~y) + 1e-300
+    classT_var_0, classT_var_1, classT_cov = jit_cov(X[:, y], ddof=0)
+    classF_var_0, classF_var_1, classF_cov = jit_cov(X[:, ~y], ddof=0)
+    var_0 = (pi_T * classT_var_0 + pi_F * classF_var_0) / (pi_T + pi_F)
+    var_1 = (pi_T * classT_var_1 + pi_F * classF_var_1) / (pi_T + pi_F)
+    cov = (pi_T * classT_cov + pi_F * classF_cov) / (pi_T + pi_F)
+    mean_T_0, mean_T_1 = np.mean(X[0, y]), np.mean(X[1, y])
+    mean_F_0, mean_F_1 = np.mean(X[0, ~y]), np.mean(X[1, ~y])
+    dmean_0, dmean_1 = mean_T_0 - mean_F_0, mean_T_1 - mean_F_1
+    c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (mean_F_1**2 - mean_T_1**2) * var_0 / 2
+    c += (mean_T_0 * mean_T_1 - mean_F_0 * mean_F_1) * cov
+    c -= (var_0 * var_1 - cov**2) * (np.log(pi_F / pi_T))
+    return var_0, var_1, cov, dmean_0, dmean_1, c
+
+
+@njit(error_model="numpy", fastmath=True)
+def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
+    a = dmean_0 * var_1 - dmean_1 * cov
+    b = dmean_1 * var_0 - dmean_0 * cov
+    score = np.sum(((a * X[0] + b * X[1] + c) > 0) == y) / X.shape[1]
+    # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
+    kl_d = (
+        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-300) / 2
+    )
+    return score, kl_d
+
 
 ### QDA_2d
+# from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis as QDA
+# QDA()
+
+
 @njit(error_model="numpy", fastmath=True)
 def QDA_2d(X, y):
     args = sub_QDA_2d_fit(X, y)
@@ -90,44 +134,11 @@ def sub_QDA_2d_score(
     return score, kl_d
 
 
-### LDA_2d
-@njit(error_model="numpy", fastmath=True)
-def LDA_2d(X, y):
-    args = sub_LDA_2d_fit(X, y)
-    return sub_LDA_2d_score(X, y, *args)
-
-
-@njit(error_model="numpy", fastmath=True)
-def sub_LDA_2d_fit(X, y):
-    pi_T = np.sum(y) + 1e-300
-    pi_F = np.sum(~y) + 1e-300
-    classT_var_0, classT_var_1, classT_cov = jit_cov(X[:, y], ddof=0)
-    classF_var_0, classF_var_1, classF_cov = jit_cov(X[:, ~y], ddof=0)
-    var_0 = (pi_T * classT_var_0 + pi_F * classF_var_0) / (pi_T + pi_F)
-    var_1 = (pi_T * classT_var_1 + pi_F * classF_var_1) / (pi_T + pi_F)
-    cov = (pi_T * classT_cov + pi_F * classF_cov) / (pi_T + pi_F)
-    mean_T_0, mean_T_1 = np.mean(X[0, y]), np.mean(X[1, y])
-    mean_F_0, mean_F_1 = np.mean(X[0, ~y]), np.mean(X[1, ~y])
-    dmean_0, dmean_1 = mean_T_0 - mean_F_0, mean_T_1 - mean_F_1
-    c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (mean_F_1**2 - mean_T_1**2) * var_0 / 2
-    c += (mean_T_0 * mean_T_1 - mean_F_0 * mean_F_1) * cov
-    c -= (var_0 * var_1 - cov**2) * (np.log(pi_F / pi_T))
-    return var_0, var_1, cov, dmean_0, dmean_1, c
-
-
-@njit(error_model="numpy", fastmath=True)
-def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
-    a = dmean_0 * var_1 - dmean_1 * cov
-    b = dmean_1 * var_0 - dmean_0 * cov
-    score = np.sum(((a * X[0] + b * X[1] + c) > 0) == y) / X.shape[1]
-    # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
-    kl_d = (
-        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-300) / 2
-    )
-    return score, kl_d
-
-
 ### DT_2d
+# from sklearn.tree import DecisionTreeClassifier as DT
+# DT(criterion='entropy',max_depth=2)
+
+
 from model_score_1d import sub_DT_1d_fit
 
 
@@ -256,6 +267,12 @@ def sub_DT_2d_score(
 
 
 ### KNN_2d
+# from sklearn.neighbors import KNeighborsClassifier
+# clf = KNeighborsClassifier(n_neighbors=5)
+# from sklearn.model_selection import LeaveOneOut
+# LeaveOneOutCV
+
+
 def make_KNN_2d(k=5, name=None):
     @njit(error_model="numpy")
     def KNN_2d(x, y):
@@ -334,18 +351,21 @@ def make_sub_KNN_2d_score(k=5, name=None):
 
 
 ### Weighted KNN_2d
+# from sklearn.neighbors import KNeighborsClassifier
+# clf = KNeighborsClassifier(n_neighbors=t.shape[0]-1,weights=lambda d: 1/d**2)
+# from sklearn.model_selection import LeaveOneOut
+# LeaveOneOutCV
 
 
 @njit(error_model="numpy")
 def WKNN_2d(x, y):
     n_samples = y.shape[0]
-    d = (np.repeat(x[0], n_samples).reshape((n_samples, n_samples)) - x[0]) ** 2
-    d += (np.repeat(x[1], n_samples).reshape((n_samples, n_samples)) - x[1]) ** 2
-    w = 1 / (d + 1e-300)
+    w = np.empty((n_samples, n_samples), dtype="float64")
     for i in range(n_samples):
         w[i, i] = 0
-    w /= np.sum(w, axis=0)
-    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0)))  # / np.sum(w, axis=0)
+        w[i, i + 1 :] = 1 / ((x[0, i + 1 :] - x[0, i]) ** 2 + (x[1, i + 1 :] - x[1, i]) ** 2 + 1e-300)
+        w[i + 1 :, i] = w[i, i + 1 :]
+    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
     return -entropy, count
