@@ -1,0 +1,16 @@
+include cache_folder/cache_1.npz
+include cache_folder/cache_2.npz
+include cache_folder/cache_3.npz
+include cache_folder/cache_4.npz
+include cache_folder/cache_5.npz
+include cache_folder/num_to_index_1.npz
+include cache_folder/num_to_index_2.npz
+include cache_folder/num_to_index_3.npz
+include cache_folder/num_to_index_4.npz
+include cache_folder/num_to_index_5.npz
+include cache_folder/need_calc_change_x_1.npz
+include cache_folder/need_calc_change_x_2.npz
+include cache_folder/need_calc_change_x_3.npz
+include cache_folder/need_calc_change_x_4.npz
+include cache_folder/need_calc_change_x_5.npz
+include cache_folder/max_id_need_calc.npy

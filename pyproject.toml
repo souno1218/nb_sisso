@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nb_sisso"
+version = "0.1"
+description = "説明"
+#readme = "README.md、相対ぱす"
+requires-python = ">=3.10"
+license = {text = "MIT License"}
+authors = [{name = "souno1218", email = "supinosaurusuz@gmail.com"},]
+dependencies = ["numba>=0.60","numpy","numba_progress"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
