@@ -109,7 +109,7 @@ def dtype_shape_check(logger, var, var_name, dtype_=None, ndim=None, dict_index_
                 )
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True)
 def thread_check(num_threads):
     checker = np.zeros(num_threads, dtype="bool")
     for thread_id in prange(num_threads):
@@ -117,7 +117,7 @@ def thread_check(num_threads):
     return np.all(checker)
 
 
-@njit(error_model="numpy", cache=True)
+@njit(error_model="numpy")
 def argmin_and_min(arr):
     min_num1, min_num2, min_index = arr[0, 0], arr[0, 1], 0
     for i in range(1, arr.shape[0]):
@@ -129,7 +129,7 @@ def argmin_and_min(arr):
     return min_num1, min_num2, min_index
 
 
-@njit(error_model="numpy", cache=True)  # ,fastmath=True)
+@njit(error_model="numpy")  # ,fastmath=True)
 def calc_RPN(x, equation):
     # Nan_number=-100
     stack = np.full((np.sum(equation >= 0), x.shape[1]), np.nan, dtype="float64")
@@ -170,7 +170,7 @@ def calc_RPN(x, equation):
                     stack[last_stack_index] **= 0.5
                 case -9:  # | |
                     # not all(x>=0),all(x<0)
-                    if np.all((stack[last_stack_index, 0] * stack[last_stack_index, 1:]) >= 0):
+                    if (0 >= np.max(stack[last_stack_index])) or (np.min(stack[last_stack_index]) >= 0):
                         stack[0, 0] = np.nan
                         return stack[0]
                     stack[last_stack_index] = np.abs(stack[last_stack_index])
@@ -215,13 +215,13 @@ def calc_RPN(x, equation):
     return stack[0]
 
 
-@njit(error_model="numpy", cache=True)  # ,fastmath=True)
+@njit(error_model="numpy")  # ,fastmath=True)
 def is_zero(num):
     rtol = 1e-010
     return np.all(np.abs(num) <= rtol)
 
 
-@njit(error_model="numpy", cache=True)  # ,fastmath=True)
+@njit(error_model="numpy")  # ,fastmath=True)
 def is_one(num):
     rtol = 1e-010
     if (np.abs(num[0]) - 1) <= rtol:
@@ -230,13 +230,13 @@ def is_one(num):
     return False
 
 
-@njit(error_model="numpy", cache=True)  # ,fastmath=True)
+@njit(error_model="numpy")  # ,fastmath=True)
 def is_const(num):
     rtol = 1e-010
     return (np.max(num) - np.min(num)) / np.abs(np.mean(num)) <= rtol
 
 
-@njit(error_model="numpy", cache=True)  # ,fastmath=True)
+@njit(error_model="numpy")  # ,fastmath=True)
 def jit_cov(X, ddof=1):
     n = X.shape[1]
     X_1 = X[0, :] - np.sum(X[0, :]) / n
@@ -245,6 +245,22 @@ def jit_cov(X, ddof=1):
     var_2 = np.sum(X_2 * X_2) / (n - ddof)
     cross_cov = np.sum(X_1 * X_2) / (n - ddof)
     return var_1, var_2, cross_cov
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def quartile_deviation(x):
+    n_samples = x.shape[0]
+    n_4 = n_samples // 4
+    sorted_x = np.sort(x)
+    match n_samples % 4:
+        case 0:
+            return (sorted_x[3 * n_4 - 1] + sorted_x[3 * n_4] - sorted_x[n_4 - 1] - sorted_x[n_4]) / 4
+        case 1:
+            return (sorted_x[3 * n_4] + sorted_x[3 * n_4 + 1] - sorted_x[n_4 - 1] - sorted_x[n_4]) / 4
+        case 2:
+            return (sorted_x[3 * n_4 + 1] - sorted_x[n_4]) / 2
+        case 3:
+            return (sorted_x[3 * n_4 + 2] - sorted_x[n_4]) / 2
 
 
 def p_upper_x(n, x, pattern):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
+import numba
 from log_progress import loop_log
 from numba_progress import ProgressBar
 import datetime, logging, multiprocessing
@@ -138,6 +139,7 @@ def SIS(
 
     # shuffle
     index = np.arange(x.shape[1])
+    # rng = np.random.default_rng(seed=123)
     rng = np.random.default_rng()
     rng.shuffle(index)
     x = x.T[index].T.copy()
@@ -214,6 +216,13 @@ def SIS(
             how_many_per1c = how_many_to_save
     else:
         how_many_per1c = how_many_to_save
+
+    # log
+    logger.info(f"numba={numba.__version__}, numpy={np.__version__}")
+    logger.info(f"OPT={numba.config.OPT}, THREADING_LAYER={numba.config.THREADING_LAYER}")
+    logger.info(
+        f"USING_SVML={numba.config.USING_SVML}, ENABLE_AVX={numba.config.ENABLE_AVX}, DISABLE_JIT={numba.config.DISABLE_JIT}"
+    )
 
     logger.info("SIS")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
@@ -363,22 +372,26 @@ def compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, m
     if is_progress:
         with ProgressBar(total=0, leave=False, disable=True) as progress:
             sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
-        with ProgressBar(total=0, leave=False, disable=True) as progress:
-            sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
+        if len(use_unary_op) != 0:
+            with ProgressBar(total=0, leave=False, disable=True) as progress:
+                sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
     else:
         with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
             sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
-        with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
-            sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
+        if len(use_unary_op) != 0:
+            with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
+                sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
 
 
 @njit(error_model="numpy")
 def loop_counter_binary(n_op1, n_op2, used_eq_dict):
     loop = 0
     for n_binary_op1 in range(n_op1 + 1):
-        len_use_eq_arr1 = used_eq_dict[n_op1][n_binary_op1].shape[0]
-        for n_binary_op2 in range(n_op2 + 1):
-            loop += len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
+        if n_binary_op1 in list(used_eq_dict[n_op1].keys()):
+            len_use_eq_arr1 = used_eq_dict[n_op1][n_binary_op1].shape[0]
+            for n_binary_op2 in range(n_op2 + 1):
+                if n_binary_op2 in list(used_eq_dict[n_op2].keys()):
+                    loop += len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
     return loop
 
 
@@ -386,7 +399,8 @@ def loop_counter_binary(n_op1, n_op2, used_eq_dict):
 def loop_counter_unary(n_op, used_eq_dict):
     loop = 0
     for before_n_binary_op in range(n_op):
-        loop += used_eq_dict[n_op - 1][before_n_binary_op].shape[0]
+        if before_n_binary_op in list(used_eq_dict[n_op - 1].keys()):
+            loop += used_eq_dict[n_op - 1][before_n_binary_op].shape[0]
     return loop
 
 
@@ -449,13 +463,17 @@ def make_eq_id(n_binary_op1, info):
     arg_sort = np.argsort(info)
     mask_1 = np.ones(n_binary_op + 1, dtype="bool")
     mask_2 = info[n_binary_op1 + 1 :] != 0
+    for i in range(n_binary_op, 0, -1):
+        index_f, index_b = arg_sort[i - 1], arg_sort[i]
+        if info[index_f] == info[index_b]:
+            if index_f > index_b:
+                arg_sort[i - 1], arg_sort[i] = index_b, index_f
+                index_f, index_b = arg_sort[i - 1], arg_sort[i]
+            mask_1[i] = False
+            if n_binary_op1 < index_f:
+                mask_2[index_b - n_binary_op1 - 1] = False
     if info[arg_sort[0]] == 0:
         mask_1[0] = False
-    for i in range(1, n_binary_op + 1):
-        if info[arg_sort[i - 1]] == info[arg_sort[i]]:
-            mask_1[i] = False
-            if n_binary_op1 < arg_sort[i - 1]:
-                mask_2[arg_sort[i] - n_binary_op1 - 1] = False
     retuen_arr = np.empty(n_binary_op + 1, dtype="int8")
     retuen_arr[np.sort(arg_sort[mask_1])] = np.arange(1, np.sum(mask_1) + 1)
     for i in np.arange(n_binary_op + 1)[~mask_1]:
@@ -465,7 +483,7 @@ def make_eq_id(n_binary_op1, info):
     return changed_back_eq_x_num, shuffled_eq_x_num
 
 
-@njit(error_model="numpy")  # ,fastmath=True)
+@njit(error_model="numpy")
 def sub_loop_non_op(
     x,
     y,
@@ -567,6 +585,8 @@ def sub_loop_binary_op(
     n_op2 = n_op - 1 - n_op1
 
     for n_binary_op1 in range(n_op1 + 1):
+        if not n_binary_op1 in list(used_eq_dict[n_op1].keys()):
+            continue
         use_eq_arr1 = used_eq_dict[n_op1][n_binary_op1]
         use_unit_arr1 = used_unit_dict[n_op1][n_binary_op1]
         use_shape_id_arr1 = used_shape_id_dict[n_op1][n_binary_op1]
@@ -574,6 +594,8 @@ def sub_loop_binary_op(
         if use_eq_arr1.shape[0] == 0:
             continue
         for n_binary_op2 in range(n_op2 + 1):
+            if not n_binary_op2 in list(used_eq_dict[n_op2].keys()):
+                continue
             use_eq_arr2 = used_eq_dict[n_op2][n_binary_op2]
             use_unit_arr2 = used_unit_dict[n_op2][n_binary_op2]
             use_shape_id_arr2 = used_shape_id_dict[n_op2][n_binary_op2]
@@ -657,7 +679,7 @@ def sub_loop_binary_op(
                                         last_index += 1
                                     if max_id_need_calc[n_binary_op] > eq_id:
                                         score1, score2 = model_score(ans_num, y)
-                                        if np.logical_not(np.isnan(score1)):
+                                        if not (np.isnan(score1) or np.isnan(score2)):
                                             if score1 > border1:
                                                 score_list[min_index, 0] = score1
                                                 score_list[min_index, 1] = score2
@@ -774,11 +796,11 @@ def sub_loop_unary_op(
     max_n_op = (save_eq_list.shape[2] - 1) // 2
     x_max = x.shape[0]
     for before_n_binary_op in range(n_op):
-
+        if not before_n_binary_op in list(used_eq_dict[n_op - 1].keys()):
+            continue
         use_eq_arr = used_eq_dict[n_op - 1][before_n_binary_op]
         use_unit_arr = used_unit_dict[n_op - 1][before_n_binary_op]
-
-        len_units = use_unit_arr[0].shape[0]
+        len_units = use_unit_arr.shape[1]
         if max_n_op != n_op:
             len_used_arr = len(use_unary_op) * (use_eq_arr.shape[0] // num_threads + 1)
         else:  # max_n_op==n_op:
@@ -877,15 +899,15 @@ def sub_loop_unary_op(
                     if checked:
                         equation[len_base_eq] = op
                         ans_num = calc_RPN(x, equation)
-                        if np.logical_not(np.isnan(ans_num[0])):
+                        if not np.isnan(ans_num[0]):
+                            if max_n_op != n_op:
+                                used_unit_arr_thread[thread_id, last_index] = unit
+                                used_eq_arr_thread[thread_id, last_index] = equation
+                                used_shape_id_arr_thread[thread_id, last_index] = 0
+                                used_info_arr_thread[thread_id, last_index] = eq_to_num(equation, x_max)
+                                last_index += 1
                             score1, score2 = model_score(ans_num, y)
-                            if np.logical_not(np.isnan(score1)):
-                                if max_n_op != n_op:
-                                    used_unit_arr_thread[thread_id, last_index] = unit
-                                    used_eq_arr_thread[thread_id, last_index] = equation
-                                    used_shape_id_arr_thread[thread_id, last_index] = 0
-                                    used_info_arr_thread[thread_id, last_index] = eq_to_num(equation, x_max)
-                                    last_index += 1
+                            if not (np.isnan(score1) or np.isnan(score2)):
                                 if score1 > border1:
                                     score_list[min_index, 0] = score1
                                     score_list[min_index, 1] = score2

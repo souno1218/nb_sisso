@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
+import numba
 from scipy.special import comb
 from log_progress import loop_log
 from numba_progress import ProgressBar
@@ -145,6 +146,12 @@ def SO(
     for i in range(combination_dim):
         arr_which_arr_to_choose_from[i] = which_arr_to_choose_from[i + 1]
 
+    # log
+    logger.info(f"numba={numba.__version__}, numpy={np.__version__}")
+    logger.info(f"OPT={numba.config.OPT}, THREADING_LAYER={numba.config.THREADING_LAYER}")
+    logger.info(
+        f"USING_SVML={numba.config.USING_SVML}, ENABLE_AVX={numba.config.ENABLE_AVX}, DISABLE_JIT={numba.config.DISABLE_JIT}"
+    )
     logger.info("SO")
     logger.info(f"num_threads={num_threads}, how_many_to_save={how_many_to_save}, ")
     logger.info(f"combination_dim={combination_dim}, model_score={model_score.__name__}, ")
