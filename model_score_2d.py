@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from utils import jit_cov
+from utils import jit_cov, quartile_deviation
 from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
@@ -357,33 +357,112 @@ def make_sub_KNN_2d_score(k=5, name=None):
 # LeaveOneOutCV
 
 
-@njit(error_model="numpy")
-def WKNN_2d(x, y):
-    n_samples = y.shape[0]
-    w = np.empty((n_samples, n_samples), dtype="float64")
-    for i in range(n_samples):
-        w[i, i] = 0
-        w[i, i + 1 :] = 1 / ((x[0, i + 1 :] - x[0, i]) ** 2 + (x[1, i + 1 :] - x[1, i]) ** 2 + 1e-300)
-        w[i + 1 :, i] = w[i, i + 1 :]
-    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
-    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
-    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-    return -entropy, count
+def make_WNN_2d(p=2, name=None):
+    @njit(error_model="numpy")
+    def WNN_2d_even(x, y):
+        n_samples = y.shape[0]
+        x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+        w = np.empty((n_samples, n_samples), dtype="float64")
+        for i in range(n_samples):
+            w[i, i] = 0
+            w[i, i + 1 :] = 1 / ((x[0, i + 1 :] - x[0, i]) ** p + (x[1, i + 1 :] - x[1, i]) ** p + 1e-300)
+            w[i + 1 :, i] = w[i, i + 1 :]
+        p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
+        entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+        count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+        return -entropy, count
+
+    @njit(error_model="numpy")
+    def WNN_2d_odd(x, y):
+        n_samples = y.shape[0]
+        x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+        w = np.empty((n_samples, n_samples), dtype="float64")
+        for i in range(n_samples):
+            w[i, i] = 0
+            w[i, i + 1 :] = 1 / (np.abs(x[0, i + 1 :] - x[0, i]) ** p + np.abs(x[1, i + 1 :] - x[1, i]) ** p + 1e-300)
+            w[i + 1 :, i] = w[i, i + 1 :]
+        p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
+        entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+        count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+        return -entropy, count
+
+    if p % 2 == 0:
+        model = WNN_2d_even
+    else:
+        model = WNN_2d_odd
+    if name is None:
+        model.__name__ = f"WNN_p_{p}_2d"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
 
 
 @njit(error_model="numpy")
-def sub_WKNN_2d_fit(x, y):
+def sub_WNN_2d_fit(x, y):
     return x, y
 
 
-@njit(error_model="numpy")
-def sub_WKNN_2d_score(x, y, train_x, train_y):
+def make_sub_WNN_2d_score(p=2, name=None):
+    @njit(error_model="numpy")
+    def sub_WNN_2d_score_even(x, y, train_x, train_y):
+        n_samples = y.shape[0]
+        d = (np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** p
+        d += (np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** p
+        w = 1 / (d + 1e-300)
+        w /= np.sum(w, axis=0)
+        p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
+        entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+        count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+        return -entropy, count
+
+    @njit(error_model="numpy")
+    def sub_WNN_2d_score_odd(x, y, train_x, train_y):
+        n_samples = y.shape[0]
+        d = np.abs(np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** p
+        d += np.abs(np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** p
+        w = 1 / (d + 1e-300)
+        w /= np.sum(w, axis=0)
+        p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
+        entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
+        count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
+        return -entropy, count
+
+    if p % 2 == 0:
+        model = sub_WNN_2d_score_even
+    else:
+        model = sub_WNN_2d_score_odd
+
+    if name is None:
+        model.__name__ = f"sub_WNN_p_{p}_2d_score"
+    else:
+        if not isinstance(name, str):
+            raise TypeError(f"Expected variable 'name' to be of type str, but got {type(name)}.")
+        else:
+            model.__name__ = name
+    return model
+
+
+### Weighted gauss KNN_2d
+# from sklearn.neighbors import KNeighborsClassifier
+# clf = KNeighborsClassifier(n_neighbors=t.shape[0]-1,weights=lambda d: 1/d**2)
+# from sklearn.model_selection import LeaveOneOut
+# LeaveOneOutCV
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def WGNN_2d(x, y):
     n_samples = y.shape[0]
-    d = (np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** 2
-    d += (np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** 2
-    w = 1 / (d + 1e-300)
-    w /= np.sum(w, axis=0)
-    p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
+    x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+    d_2 = np.empty((n_samples, n_samples), dtype="float64")
+    for i in range(n_samples):
+        d_2[i, i] = 0
+        d_2[i, i + 1 :] = (x[0, i + 1 :] - x[0, i]) ** 2 + (x[1, i + 1 :] - x[1, i]) ** 2
+        d_2[i + 1 :, i] = d_2[i, i + 1 :]
+    w = np.exp(-d_2 * n_samples / (2 * np.sum(d_2, axis=0)))
+    p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
     return -entropy, count
