@@ -14,3 +14,15 @@ dependencies = ["numba>=0.60","numpy","numba_progress"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"mypackage" = ["cache_folder/cache_*.npz",
+               "cache_folder/num_to_index_*.npz",
+               "cache_folder/need_calc_change_x_*.npz",
+               "cache_folder/max_id_need_calc.npy"]
+
+
+#!python -m build
