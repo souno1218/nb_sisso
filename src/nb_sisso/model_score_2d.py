@@ -139,7 +139,7 @@ def sub_QDA_2d_score(
 # DT(criterion='entropy',max_depth=2)
 
 
-from model_score_1d import sub_DT_1d_fit
+from .model_score_1d import sub_DT_1d_fit
 
 
 @njit(error_model="numpy")
