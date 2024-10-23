@@ -1,5 +1,5 @@
 import numpy as np
-from utils import jit_cov
+from .utils import jit_cov
 from numba import njit
 
 # めっちゃ遅い
@@ -18,7 +18,5 @@ def QDA_nd(X, y):
         sigma_F = np.cov(X[:, ~y], ddof=1)
     value = -np.diag(((X - mu_T).T @ np.linalg.pinv(sigma_T) @ (X - mu_T)))
     value += np.diag(((X - mu_F).T @ np.linalg.pinv(sigma_F) @ (X - mu_F)))
-    value += 2 * np.log(pi_T / pi_F) - np.log(
-        np.linalg.det(sigma_T) / np.linalg.det(sigma_F)
-    )
+    value += 2 * np.log(pi_T / pi_F) - np.log(np.linalg.det(sigma_T) / np.linalg.det(sigma_F))
     return np.sum((value > 0) == y) / y.shape[0], 0

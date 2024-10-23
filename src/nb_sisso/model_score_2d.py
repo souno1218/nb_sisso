@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from utils import jit_cov, quartile_deviation
+from .utils import jit_cov, quartile_deviation
 from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd

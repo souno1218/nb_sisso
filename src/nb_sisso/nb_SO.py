@@ -3,11 +3,11 @@
 import numpy as np
 import numba
 from scipy.special import comb
-from log_progress import loop_log
+from .log_progress import loop_log
 from numba_progress import ProgressBar
 import datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode
-from utils import (
+from .utils import (
     thread_check,
     argmin_and_min,
     raise_and_log,

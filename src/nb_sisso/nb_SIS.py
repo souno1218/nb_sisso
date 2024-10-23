@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-import numba
-from log_progress import loop_log
+from .log_progress import loop_log
 from numba_progress import ProgressBar
-import datetime, logging, multiprocessing
+import importlib.resources as pkg_resources
+import numba, os, datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode
-from utils import (
+from .utils import (
     thread_check,
     calc_RPN,
     argmin_and_min,
@@ -437,15 +437,18 @@ def load_preprocessed_results(n_binary_op, n_binary_op1):
     # eq -> make_change_x_id -> shuffled_eq_x_num
     # need_calc_change_x_dict  :  [n_binary_op,eq_id,shuffled_eq_x_num]->bool
     with objmode(preprocessed_results="int64[:,:,:,:]"):
-        preprocessed_results = np.load(f"cache_folder/cache_{n_binary_op}.npz")[str(n_binary_op1)]
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        preprocessed_results = np.load(f"{cache_path}/cache_{n_binary_op}.npz")[str(n_binary_op1)]
     with objmode(data="int64[:]"):
-        data = np.load(f"cache_folder/num_to_index_{n_binary_op}.npz")[str(n_binary_op1)]
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        data = np.load(f"{cache_path}/num_to_index_{n_binary_op}.npz")[str(n_binary_op1)]
     num_to_index = np.full((np.max(data) + 1), Nan_number, dtype="int64")
     for i, j in enumerate(np.sort(data)):
         num_to_index[j] = i
     # num_to_index={j:i for i,j in enumerate(data)}
     with objmode(need_calc_change_x="boolean[:,:]"):
-        need_calc_change_x = np.load(f"cache_folder/need_calc_change_x_{n_binary_op}.npz")["arr_0"]
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        need_calc_change_x = np.load(f"{cache_path}/need_calc_change_x_{n_binary_op}.npz")["arr_0"]
     return preprocessed_results, num_to_index, need_calc_change_x
 
 
@@ -453,7 +456,8 @@ def load_preprocessed_results(n_binary_op, n_binary_op1):
 def load_max_id_need_calc():
     # max_id_need_calc  :  [n_binary_op]->max_eq_id
     with objmode(max_id_need_calc="int64[:]"):
-        max_id_need_calc = np.load("cache_folder/max_id_need_calc.npy")
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        max_id_need_calc = np.load(f"{cache_path}/max_id_need_calc.npy")
     return max_id_need_calc
 
 
