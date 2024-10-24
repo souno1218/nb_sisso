@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-import numba
 from scipy.special import comb
 from .log_progress import loop_log
 from numba_progress import ProgressBar
-import datetime, logging, multiprocessing
+import numba, datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode
 from .utils import (
     thread_check,
@@ -28,6 +27,7 @@ def SO(
     is_progress=False,
     log_interval=10,
     logger=None,
+    restart_file_path=None,
 ):
     """
     Select all combinations from the given ndarray(list_x), throw them into the model_score,
@@ -79,6 +79,9 @@ def SO(
         A logger instance to handle logging.
         It is expected to be a standard Python `logging.Logger` instance.
         If not set, create a logger with only a StreamHandler.
+    restart_file_path : str, optional
+        uninstalled.
+        If there are interrupted calculations, insert the emergency_save_path at that time.
 
     Returns
     ----------
@@ -158,38 +161,73 @@ def SO(
     logger.info(f"which_arr_to_choose_from={which_arr_to_choose_from}")
     repeat = loop_counter(arr_x, arr_which_arr_to_choose_from)
     logger.info(f"loop={repeat}")
-
     # compiling
     logger.info(f"compiling")
     compiling(num_threads, arr_which_arr_to_choose_from, arr_x, y, model_score, is_progress, logger)
     logger.info(f"END, compile")
 
+    Nan_number = -100
+    how_many_to_choose = arr_which_arr_to_choose_from.shape[0]
+    if restart_file_path is None:
+        score_list_thread = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
+        index_list_thread = np.full((num_threads, how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
+        conunter = np.arange(num_threads)
+    else:
+        data = np.load(restart_file_path).keys()
+        keys = list(data.keys())
+        if "conunter" in keys:
+            conunter = data["conunter"]
+        else:
+            raise_and_log(
+                logger,
+                TypeError(f"{restart_file_path} does not have key conunter"),
+            )
+        if "score_list_thread" in keys:
+            score_list_thread = data["score_list_thread"]
+        else:
+            raise_and_log(
+                logger,
+                TypeError(f"{restart_file_path} does not have key score_list_thread"),
+            )
+        if "index_list_thread" in keys:
+            index_list_thread = data["index_list_thread"]
+        else:
+            raise_and_log(
+                logger,
+                TypeError(f"{restart_file_path} does not have key index_list_thread"),
+            )
+
     time0 = datetime.datetime.now()
     if is_progress:
         bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
         with ProgressBar(total=repeat, dynamic_ncols=False, bar_format=bar_format, leave=False) as progress:
-            score_list, index_list = SO_loop(
-                num_threads,
+            sub_SO_loop(
                 arr_x,
                 y,
-                how_many_to_save,
                 model_score,
                 arr_which_arr_to_choose_from,
+                conunter,
+                score_list_thread,
+                index_list_thread,
                 progress,
             )
     else:
         with loop_log(logger, interval=log_interval, tot_loop=repeat, header="  ") as progress:
-            score_list, index_list = SO_loop(
-                num_threads,
+            sub_SO_loop(
                 arr_x,
                 y,
-                how_many_to_save,
                 model_score,
                 arr_which_arr_to_choose_from,
+                conunter,
+                score_list_thread,
+                index_list_thread,
                 progress,
             )
+    index = np.lexsort((score_list_thread[:, :, 1].ravel(), score_list_thread[:, :, 0].ravel()))[::-1]
+    score_list = score_list_thread.reshape(-1, 2)[index[:how_many_to_save]]
+    index_list = index_list_thread.reshape(-1, how_many_to_choose)[index[:how_many_to_save]]
     dtime = datetime.datetime.now() - time0
-    logger.info(f"  END : time={dtime}")
+    logger.info(f"END : time={dtime}")
     logger.info(f"best : score={score_list[0]},index={index_list[0]}")
     return score_list, index_list
 
@@ -212,12 +250,20 @@ def type_check_which_arr_to_choose_from(logger, combination_dim, which_arr_to_ch
 
 
 def compiling(num_threads, arr_which_arr_to_choose_from, arr_x, y, model_score, is_progress, logger):
+    Nan_number = -100
+    how_many_to_save = 1
+    how_many_to_choose = arr_which_arr_to_choose_from.shape[0]
+    a = arr_which_arr_to_choose_from
+    s = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
+    i = np.full((num_threads, how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
+    c = np.zeros((num_threads,), dtype="int64")
+
     if is_progress:
         with ProgressBar(total=0, leave=False, disable=True) as p:
-            _ = SO_loop(num_threads, arr_x[:, :5], y, 1, model_score, arr_which_arr_to_choose_from, p)
+            sub_SO_loop(arr_x[:, :5], y, model_score, a, c, s, i, p)
     else:
         with loop_log(logger, interval=10000, tot_loop=0, header="") as p:
-            _ = SO_loop(num_threads, arr_x[:, :5], y, 1, model_score, arr_which_arr_to_choose_from, p)
+            sub_SO_loop(arr_x[:, :5], y, model_score, a, c, s, i, p)
 
 
 def loop_counter(arr_x, arr_which_arr_to_choose_from):
@@ -261,22 +307,23 @@ def make_index_arr(number, check_list, len_x_arr, arr_which_arr_to_choose_from, 
 
 
 @njit(parallel=True, error_model="numpy")  # ,fastmath=True
-def SO_loop(
-    num_threads,
+def sub_SO_loop(
     arr_x,
     y,
-    how_many_to_save,
     model_score,
     arr_which_arr_to_choose_from,
+    conunter,
+    score_list_thread,
+    index_list_thread,
     progress_proxy,
 ):
     Nan_number = -100
     how_many_to_choose = arr_which_arr_to_choose_from.shape[0]
     len_x_arr = np.array([np.sum(arr_x[i, :, 0] != Nan_number) for i in arr_which_arr_to_choose_from])
     repeat = np.prod(len_x_arr)
+    num_threads = score_list_thread.shape[0]
+    how_many_to_save = score_list_thread.shape[1]
 
-    score_list_thread = np.full((num_threads, how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
-    index_list_thread = np.full((num_threads, how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
     for thread_id in prange(num_threads):
         score_list = np.full((how_many_to_save, 2), np.finfo(np.float64).min, dtype="float64")
         index_list = np.full((how_many_to_save, how_many_to_choose), Nan_number, dtype="int64")
@@ -285,14 +332,15 @@ def SO_loop(
         index_arr = np.zeros((how_many_to_choose), dtype="int64")
         selected_X = np.empty((how_many_to_choose, arr_x.shape[2]), dtype="float64")
         check_list = make_check_list(arr_which_arr_to_choose_from)
-        for i in range(thread_id, repeat, num_threads):
+        first_num = conunter[thread_id]
+        for i in range(first_num, repeat, num_threads):
             is_calc = make_index_arr(i, check_list, len_x_arr, arr_which_arr_to_choose_from, index_arr)
             if not is_calc:
                 continue
             for j, k in enumerate(index_arr):
                 selected_X[j] = arr_x[arr_which_arr_to_choose_from[j], k]
             score1, score2 = model_score(selected_X, y)
-            if np.logical_not(np.isnan(score1)):
+            if not np.isnan(score1):
                 if score1 > border1:
                     score_list[min_index, 0] = score1
                     score_list[min_index, 1] = score2
@@ -316,15 +364,7 @@ def SO_loop(
                         elif border1 == min_num1:
                             if border2 > min_num2:
                                 border2 = min_num2
+            conunter[thread_id] += num_threads
             progress_proxy.update(1)
         score_list_thread[thread_id] = score_list
         index_list_thread[thread_id] = index_list
-
-    with objmode(index="int64[:]"):
-        index = np.lexsort((score_list_thread[:, :, 1].ravel(), score_list_thread[:, :, 0].ravel()))[::-1][
-            :how_many_to_save
-        ]
-    return (
-        score_list_thread.reshape(-1, 2)[index],
-        index_list_thread.reshape(-1, how_many_to_choose)[index],
-    )

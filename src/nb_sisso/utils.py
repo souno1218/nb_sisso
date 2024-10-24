@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import sys, datetime, threading, signal
 import numpy as np
 from scipy import integrate
 from numba import njit, prange
@@ -271,3 +272,15 @@ def p_upper_x(n, x, pattern):
 
     p, err = integrate.quad(bin, 0, x)
     return 1 - p**pattern
+
+
+def sig_handler(signum, frame):
+    sys.exit(1)
+
+
+def emergency_save(logger, emergency_save_folder_path, **kwargs):
+    now = datetime.datetime.now()
+    file_path = f"{emergency_save_folder_path}/emergency_save_{now.strftime('%Y%m%d_%H%M%S')}"
+    logger.error(f"emergency save path: {file_path}.npz")
+    logger.error(f"emergency save keys: {list(kwargs.keys())}")
+    np.savez(file_path, **kwargs)
