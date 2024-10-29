@@ -1,10 +1,11 @@
 # nb_sisso
 このプロジェクトは、[rouyang2017]によって開発された[SISSO](https://github.com/rouyang2017/SISSO)のいわばnumba実装です。   
 元々は車輪の再発明をし、上記プロジェクトの理解を深めることを目的としていました。   
-また、自身はfortranのコードが読めないため、元のコードをほとんど読めておらず、正しい実装であるかは分かりません。   
-また、SISとSOでわけ、別々に実装しているため、コード自体が不完全です。   
-自身の研究内容が分類問題で、回帰問題を取り扱う機会がなかったため、回帰問題での使用はuserの変更が必要です。   
+また、自身はfortranのコードが読めないため、元のコードをほとんど読めていないため、元のコードの完全な再実装ではありません。   
+また、SISとSOでわけ別々に実装しているため、使用時にはそれぞれの結果をつなぐ必要があります(`info/how_to_use.ipynb`を確認)。   
+自身の研究内容が分類問題で、回帰問題を取り扱う機会がなかったため、回帰問題での使用はuserによる指標の変更が必要です。   
 ですが、numbaは読むだけならpython(numpy)と変わりがなく、pythonであれば書ける、読める人が多いだろうことから、参考程度にはなるかと思い公開します。   
+また、pythonを書くことができれば新規指標(分類問題ではconvex hullを置き換えるもの)を作成することができます。   
 
 オリジナル・プロジェクトの詳細については、[SISSO](https://github.com/rouyang2017/SISSO)をご覧ください。   
 
@@ -41,7 +42,7 @@ pip install git+https://github.com/souno1218/nb_sisso.git
 * **河野 颯之介(Sonosuke Kono)**
 
 ## License
-This project is licensed under Apache License, Version 2.0 - see the [LICENSE.md](LICENSE.md) file for details.   
+This project is licensed under Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.   
 
 ## Acknowledgements
 This project is based on [SISSO](https://github.com/rouyang2017/SISSO), originally developed by [Original Author(s)]. The original project is licensed under the Apache License 2.0, and a copy of the license can be found [here](http://www.apache.org/licenses/LICENSE-2.0).

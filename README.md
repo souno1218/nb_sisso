@@ -1,10 +1,12 @@
 # nb_sisso
 This project is a numba implementation so to speak of [SISSO](https://github.com/rouyang2017/SISSO) developed by [rouyang2017].   
 Originally, the goal was to reinvent the wheel and gain a better understanding of the above project.   
-Also, since I myself cannot read fortran code, I have not been able to read much of the original code and am not sure if it is the correct implementation.   
-Also, the code itself is incomplete because it was implemented separately for SIS and SO.   
-Since my research is on classification problems and I have not had a chance to deal with regression problems, the user needs to be changed to use it for regression problems.   
+It is also not a complete re-implementation of the original code, as I myself cannot read fortran code and have therefore read very little of the original code.   
+Also, it is implemented separately in SIS and SO, so the results of each need to be connected when used (check `info/how_to_use.ipynb`).   
+As my own research is on classification problems and I have not had the opportunity to deal with regression problems,   
+ the use of the indicator in regression problems requires a change in the indicator by the USER.   
 However, numba is no different from python (numpy) if you just want to read it, and many people can write and read it in python, so I am releasing it as a reference.   
+It is also possible to create new indicators (replacing convex hull in classification problems) if you can write python.   
 
 For more information about the original project, you can visit [SISSO](https://github.com/rouyang2017/SISSO).
 
@@ -41,7 +43,7 @@ This project differs from [SISSO](https://github.com/rouyang2017/SISSO) in the f
 * **河野 颯之介(Sonosuke Kono)**
 
 ## License
-This project is licensed under Apache License, Version 2.0 - see the [LICENSE.md](LICENSE.md) file for details.   
+This project is licensed under Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.   
 
 ## Acknowledgements
 This project is based on [SISSO](https://github.com/rouyang2017/SISSO), originally developed by [Original Author(s)]. The original project is licensed under the Apache License 2.0, and a copy of the license can be found [here](http://www.apache.org/licenses/LICENSE-2.0).
