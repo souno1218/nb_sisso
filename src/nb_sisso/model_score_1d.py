@@ -377,8 +377,9 @@ def sub_Hull_1d_score(x, y, min_T, max_T, min_F, max_F):
     TF[y] |= x[y] > max_F
     TF[~y] = min_T > x[~y]
     TF[~y] |= x[~y] > max_T
-    len_overlap = min(max_T, max_F) - max(min_T, min_F)
-    return np.mean(TF), -len_overlap
+    S_overlap = min(max_T, max_F) - max(min_T, min_F)
+    S = S_overlap / min((max_T - min_T), (max_F - min_F))
+    return np.mean(TF), -S
 
 
 ### make CV_model

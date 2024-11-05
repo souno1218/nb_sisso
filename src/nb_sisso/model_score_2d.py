@@ -499,94 +499,182 @@ def checker(X, y):
 
 @njit(error_model="numpy")
 def Hull_2d(X, y):
-    # Spearman rank correlation coefficient
-    r_R = Spearman_coefficient(X)
-    if r_R > 0.9:
-        return 0, 0
+    Nan_number = -100
     classT_X, classF_X = X[:, y], X[:, ~y]
+    EdgeX = np.full((2, max(np.sum(y), np.sum(~y)), 2), np.nan, dtype="float64")
+    filled_index = np.zeros(2, dtype="int64")
     index_x_max = np.argmax(classT_X[0])
     index_x_min = np.argmin(classT_X[0])
     arange = np.arange(classT_X.shape[1])
-    classT_X_mask = np.ones(classT_X.shape[1], dtype="bool")
+    classT_X_mask = np.zeros(classT_X.shape[1], dtype="int64")
     not_is_in = np.ones(classF_X.shape[1], dtype="bool")
-    classT_X_mask[index_x_max] = False
-    classT_X_mask[index_x_min] = False
-    copy_classT_X_mask = classT_X_mask.copy()
-    sub_Hull_2d(
-        classT_X,
-        classF_X,
-        not_is_in,
-        arange,
-        index_x_max,
-        index_x_min,
-        copy_classT_X_mask,
-    )
-    sub_Hull_2d(classT_X, classF_X, not_is_in, arange, index_x_min, index_x_max, classT_X_mask)
+    Edge_T = np.full((classT_X.shape[1] + 1), Nan_number, dtype="int64")
+    Edge_T[0] = index_x_min
+    n = np.zeros(1, dtype="int64")
+    classT_X_mask[index_x_max] = -1
+    classT_X_mask[index_x_min] = -1
+    sub_Hull_2d(classT_X, classF_X, not_is_in, arange, 1, index_x_max, index_x_min, classT_X_mask, Edge_T, n)
+    Edge_T[n[0] + 1] = index_x_max
+    n[0] += 1
+    classT_X_mask *= -1
+    classT_X_mask[index_x_max] = -1
+    classT_X_mask[index_x_min] = -1
+    sub_Hull_2d(classT_X, classF_X, not_is_in, arange, 1, index_x_min, index_x_max, classT_X_mask, Edge_T, n)
+    Edge_T[n[0] + 1] = index_x_min
+    EdgeX[0, : n[0] + 2] = classT_X[:, Edge_T[: n[0] + 2]].T
+    filled_index[0] = n[0] + 2
+
     ans = np.sum(~not_is_in)
+
     index_x_max = np.argmax(classF_X[0])
     index_x_min = np.argmin(classF_X[0])
     arange = np.arange(classF_X.shape[1])
-    classF_X_mask = np.ones(classF_X.shape[1], dtype="bool")
+    classF_X_mask = np.zeros(classF_X.shape[1], dtype="int64")
     not_is_in = np.ones(classT_X.shape[1], dtype="bool")
-    classF_X_mask[index_x_max] = False
-    classF_X_mask[index_x_min] = False
-    copy_classF_X_mask = classF_X_mask.copy()
-    sub_Hull_2d(
-        classF_X,
-        classT_X,
-        not_is_in,
-        arange,
-        index_x_max,
-        index_x_min,
-        copy_classF_X_mask,
-    )
-    sub_Hull_2d(classF_X, classT_X, not_is_in, arange, index_x_min, index_x_max, classF_X_mask)
+    Edge_F = np.full((classF_X.shape[1] + 1), Nan_number, dtype="int64")
+    Edge_F[0] = index_x_min
+    n[0] = 0
+    classF_X_mask[index_x_max] = -1
+    classF_X_mask[index_x_min] = -1
+    sub_Hull_2d(classF_X, classT_X, not_is_in, arange, 1, index_x_max, index_x_min, classF_X_mask, Edge_F, n)
+    Edge_F[n[0] + 1] = index_x_max
+    n[0] += 1
+    classF_X_mask *= -1
+    classF_X_mask[index_x_max] = -1
+    classF_X_mask[index_x_min] = -1
+    sub_Hull_2d(classF_X, classT_X, not_is_in, arange, 1, index_x_min, index_x_max, classF_X_mask, Edge_F, n)
+    Edge_F[n[0] + 1] = index_x_min
+    EdgeX[1, : n[0] + 2] = classF_X[:, Edge_F[: n[0] + 2]].T
+    filled_index[1] = n[0] + 2
+    EdgeX = EdgeX[:, : np.max(filled_index)].copy()
     ans += np.sum(~not_is_in)
     score = 1 - (ans / (y.shape[0]))
-    # KNN check
-    if score > 0.5:
-        KNN_score, _ = KNN_2d_for_Hull(X, y)
-        if KNN_score + 0.2 < score:
-            return 0, 0
-    return score, 0
+
+    S_arr = np.zeros(2, dtype="float64")
+    for i in [0, 1]:
+        for j in range(filled_index[i] - 1):
+            S_arr[i] += (EdgeX[i, j + 1, 0] - EdgeX[i, j, 0]) * (EdgeX[i, j + 1, 1] + EdgeX[i, j, 1])
+    S_arr = np.abs(S_arr / 2)
+
+    tot_d = np.inf
+    index = int(EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
+    nindex = int(not EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
+    for i in range(filled_index[index] - 1):
+        for j in range(filled_index[nindex] - 1):
+            cross_x, d = cross_coordinate(EdgeX[index, i], EdgeX[index, i + 1], EdgeX[nindex, j], EdgeX[nindex, j + 1])
+            if not np.isnan(d):
+                if tot_d > d:
+                    tot_d = d
+                    first = cross_x
+                    last_index = i + 1
+        if not np.isinf(tot_d):
+            break
+    S_overlap = 0
+    if np.isinf(tot_d):
+        mins_x1_max = np.max(EdgeX[index, : filled_index[nindex], 0])
+        mins_x1_min = np.min(EdgeX[index, : filled_index[nindex], 0])
+        mins_x2_max = np.max(EdgeX[index, : filled_index[nindex], 1])
+        x2_max = np.max(EdgeX[nindex, : filled_index[nindex], 1])
+        mins_x2_min = np.min(EdgeX[index, : filled_index[nindex], 1])
+        x2_min = np.min(EdgeX[nindex, : filled_index[nindex], 1])
+        if (mins_x1_max < mins_x1_min) or (mins_x2_max < x2_min) or (mins_x2_min > x2_max):
+            return score, 0
+        else:
+            S_overlap = S_arr[nindex]
+            S = S_overlap / np.min(S_arr)
+            return score, -S
+    else:
+        now = first
+        next = EdgeX[index, last_index]
+        cross = False
+        for j in range(filled_index[nindex] - 1):
+            cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
+            if not np.isnan(d):
+                next = cross_x
+                cross = True
+                last_index = (j + 1) % (filled_index[nindex] - 1)
+        S_overlap += (next[0] - now[0]) * (next[1] + now[1])
+        if cross:
+            index, nindex = nindex, index
+        else:
+            last_index = (last_index + 1) % (filled_index[index] - 1)
+
+        while not np.allclose(first, next):
+            now, next = next, EdgeX[index, last_index]
+            cross = False
+            for j in range(filled_index[nindex] - 1):
+                cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
+                if not np.isnan(d):
+                    next = cross_x
+                    cross = True
+                    last_index = (j + 1) % (filled_index[nindex] - 1)
+            S_overlap += (next[0] - now[0]) * (next[1] + now[1])
+            if cross:
+                index, nindex = nindex, index
+            else:
+                last_index = (last_index + 1) % (filled_index[index] - 1)
+        S_overlap = np.abs(S_overlap / 2)
+        S = S_overlap / np.min(S_arr)
+        return score, -S
 
 
 @njit(error_model="numpy")
-def sub_Hull_2d(base_x, other_x, not_is_in, arange, base_index1, base_index2, base_x_mask):
-    if np.any(not_is_in):
-        copy_base_x_mask = base_x_mask.copy()
-        base_vec = base_x[:, base_index1] - base_x[:, base_index2]
-        bec_xy = base_x[:, arange[copy_base_x_mask]] - np.expand_dims(base_x[:, base_index2], axis=1)
-        cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
-        if np.any(cross > 0):
-            next_point = np.argmax(cross)
-            next_index = arange[copy_base_x_mask][next_point]
-            copy_base_x_mask[arange[copy_base_x_mask][cross <= 0]] = False
-            copy_base_x_mask[next_index] = False
-            use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index2], axis=1)
-            num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
-            num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
-            num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
-            num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
-            not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
-            sub_Hull_2d(
-                base_x,
-                other_x,
-                not_is_in,
-                arange,
-                next_index,
-                base_index2,
-                copy_base_x_mask,
-            )
-            sub_Hull_2d(
-                base_x,
-                other_x,
-                not_is_in,
-                arange,
-                base_index1,
-                next_index,
-                copy_base_x_mask,
-            )
+def sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_count, base_index_front, base_index_back, mask, Edge, n):
+    base_vec = base_x[:, base_index_front] - base_x[:, base_index_back]
+    target_index = arange[mask == (loop_count - 1)]
+    bec_xy = base_x[:, target_index] - np.expand_dims(base_x[:, base_index_back], axis=1)
+    cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
+    if np.any(cross > 0):
+        next_point = np.argmax(cross)
+        next_index = target_index[next_point]
+        mask[target_index[0 < cross]] = loop_count
+        mask[next_index] = loop_count - 1
+        use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index_back], axis=1)
+        num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
+        num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
+        num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
+        num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
+        not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
+        loop_next = loop_count + 1
+        sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
+        Edge[n[0] + 1] = next_index
+        n[0] += 1
+        sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
+
+
+@njit(error_model="numpy")
+def cross_coordinate(x1, x2, x3, x4):
+    # A=(x2-x1)とB=(x4-x3)の交点
+    cross_x = np.full((2), np.nan, dtype="float64")
+    if x1[0] == x2[0]:
+        if x3[0] == x4[0]:
+            return cross_x, np.nan
+        else:
+            x = x1[0]
+            y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
+    elif x3[0] == x4[0]:
+        x = x3[0]
+        y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
+    elif x1[0] == x3[0]:
+        if x1[1] == x3[1]:
+            return cross_x, np.nan
+    else:
+        a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
+        a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
+        if a1 == a3:
+            return cross_x, np.nan
+        else:
+            x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)
+            y = a1 * (x - x1[0]) + x1[1]
+    if (max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x) and (x <= min(max(x1[0], x2[0]), max(x3[0], x4[0]))):
+        d = np.sqrt((x - x1[0]) ** 2 + (y - x1[1]) ** 2)
+        if d < 1e-10:
+            return cross_x, np.nan
+        cross_x[0] = x
+        cross_x[1] = y
+        return cross_x, d
+    else:
+        return cross_x, np.nan
 
 
 ### make CV_model
