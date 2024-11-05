@@ -501,7 +501,7 @@ def checker(X, y):
 def Hull_2d(X, y):
     Nan_number = -100
     classT_X, classF_X = X[:, y], X[:, ~y]
-    EdgeX = np.full((2, max(np.sum(y), np.sum(~y)), 2), np.nan, dtype="float64")
+    EdgeX = np.full((2, max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
     filled_index = np.zeros(2, dtype="int64")
     index_x_max = np.argmax(classT_X[0])
     index_x_min = np.argmin(classT_X[0])
