@@ -584,6 +584,8 @@ def Hull_2d(X, y):
             S = S_overlap / np.min(S_arr)
             return score, -S
     else:
+        cross_count = 0
+        Edge_count = 0
         now = first
         next = EdgeX[index, last_index]
         cross = False
@@ -595,8 +597,11 @@ def Hull_2d(X, y):
                 last_index = (j + 1) % (filled_index[nindex] - 1)
         S_overlap += (next[0] - now[0]) * (next[1] + now[1])
         if cross:
+            Edge_count += 1
+            cross_count += 1
             index, nindex = nindex, index
         else:
+            Edge_count += 1
             last_index = (last_index + 1) % (filled_index[index] - 1)
 
         while not np.allclose(first, next):
@@ -610,12 +615,18 @@ def Hull_2d(X, y):
                     last_index = (j + 1) % (filled_index[nindex] - 1)
             S_overlap += (next[0] - now[0]) * (next[1] + now[1])
             if cross:
+                Edge_count += 1
+                cross_count += 1
                 index, nindex = nindex, index
             else:
+                Edge_count += 1
                 last_index = (last_index + 1) % (filled_index[index] - 1)
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
-        return score, -S
+        if cross_count / Edge_count > 0.8:
+            return 0, -np.inf
+        else:
+            return score, -S
 
 
 @njit(error_model="numpy")
