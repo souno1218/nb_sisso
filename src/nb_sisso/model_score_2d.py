@@ -499,8 +499,13 @@ def checker(X, y):
 
 @njit(error_model="numpy")
 def Hull_2d(X, y):
+    r_R = Spearman_coefficient(X)
+    if r_R > 0.9:
+        return 0, -np.inf
     Nan_number = -100
-    classT_X, classF_X = X[:, y], X[:, ~y]
+    var_0, var_1, _ = jit_cov(X, ddof=0)
+    normalized_X = (X.T / np.array([var_0, var_1])).T
+    classT_X, classF_X = normalized_X[:, y], normalized_X[:, ~y]
     EdgeX = np.full((2, max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
     filled_index = np.zeros(2, dtype="int64")
     index_x_max = np.argmax(classT_X[0])
@@ -625,7 +630,7 @@ def Hull_2d(X, y):
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
-        if cross_count / Edge_count > 0.8:
+        if cross_count / Edge_count > 0.5:
             return 0, -np.inf
         else:
             return score, -S
