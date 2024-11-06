@@ -39,7 +39,7 @@ pip install git+https://github.com/souno1218/nb_sisso.git
 * [numba_progress](https://github.com/conda-forge/numba-progress-feedstock) - プログレスバーの表示
 
 ## Authors
-* **河野 颯之介(Sonosuke Kono)**
+* **Sonosuke Kono**
 
 ## License
 This project is licensed under Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.   

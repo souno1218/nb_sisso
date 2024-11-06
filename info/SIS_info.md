@@ -3,7 +3,7 @@ Select all combinations from the given initial features $`x`$ and operators to c
 They are fed into the model_score and the how_many_to_save features are stored in order of increasing score.   
 The flow is shown in the diagram below.   
 
-<div align="center"><img width="500" alt="image" src="https://i.imgur.com/33gcIFq.png"></div>
+<div align="center"><img width="500" alt="image" src="SIS_1.png"></div>
 
 First, the `base data` (initial features) are stored as features with operator number 0 (`n_op = 0`) and the expression (`eq`) is stored in `saved data` for use when increasing the number of operators.   
 It is then fed into `model_score`, `score1,2` is calculated, compared (`sort`) with the other `score1,2` already calculated and saved if it is in the upper `how_many_to_save`.   
@@ -16,7 +16,7 @@ $$ a+b=b+a\  ,\  \  \frac{a+b}{b+c} =\frac{a-c}{b+c} +1\  ,\  \  abc+bc=\left( 1
 
 This time, these duplicates are not calculated based on the pre-calculated `preprocessed_results`.   
 
-<div align="center"><img width="500" alt="image" src="https://i.imgur.com/WFFQCG5.png"></div>
+<div align="center"><img width="500" alt="image" src="SIS_2.png"></div>
 
 The above duplicate deletion allows (I believe) the deletion of duplicate expressions for expressions composed of (+,-,*,/), no matter what the initial feature values are.   
 However, when constants such as $`\pi`$ are included in the initial features   

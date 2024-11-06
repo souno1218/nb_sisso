@@ -40,7 +40,7 @@ This project differs from [SISSO](https://github.com/rouyang2017/SISSO) in the f
 * [numba_progress](https://github.com/conda-forge/numba-progress-feedstock) - Display of progress bar
 
 ## Authors
-* **河野 颯之介(Sonosuke Kono)**
+* **Sonosuke Kono**
 
 ## License
 This project is licensed under Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.   
