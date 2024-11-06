@@ -239,9 +239,9 @@ def is_const(num):
 
 @njit(error_model="numpy")  # ,fastmath=True)
 def jit_cov(X, ddof=1):
-    n = X.shape[1]
-    X_1 = X[0, :] - np.sum(X[0, :]) / n
-    X_2 = X[1, :] - np.sum(X[1, :]) / n
+    n = X.shape[0]
+    X_1 = X[:, 0] - np.sum(X[:, 0]) / n
+    X_2 = X[:, 1] - np.sum(X[:, 1]) / n
     var_1 = np.sum(X_1 * X_1) / (n - ddof)  # 不偏分散、sklearnに準拠
     var_2 = np.sum(X_2 * X_2) / (n - ddof)
     cross_cov = np.sum(X_1 * X_2) / (n - ddof)

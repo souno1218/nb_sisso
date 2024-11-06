@@ -21,13 +21,13 @@ def LDA_2d(X, y):
 def sub_LDA_2d_fit(X, y):
     pi_T = np.sum(y) + 1e-300
     pi_F = np.sum(~y) + 1e-300
-    classT_var_0, classT_var_1, classT_cov = jit_cov(X[:, y], ddof=0)
-    classF_var_0, classF_var_1, classF_cov = jit_cov(X[:, ~y], ddof=0)
+    classT_var_0, classT_var_1, classT_cov = jit_cov(X[y], ddof=0)
+    classF_var_0, classF_var_1, classF_cov = jit_cov(X[~y], ddof=0)
     var_0 = (pi_T * classT_var_0 + pi_F * classF_var_0) / (pi_T + pi_F)
     var_1 = (pi_T * classT_var_1 + pi_F * classF_var_1) / (pi_T + pi_F)
     cov = (pi_T * classT_cov + pi_F * classF_cov) / (pi_T + pi_F)
-    mean_T_0, mean_T_1 = np.mean(X[0, y]), np.mean(X[1, y])
-    mean_F_0, mean_F_1 = np.mean(X[0, ~y]), np.mean(X[1, ~y])
+    mean_T_0, mean_T_1 = np.mean(X[y, 0]), np.mean(X[y, 1])
+    mean_F_0, mean_F_1 = np.mean(X[~y, 0]), np.mean(X[~y, 1])
     dmean_0, dmean_1 = mean_T_0 - mean_F_0, mean_T_1 - mean_F_1
     c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (mean_F_1**2 - mean_T_1**2) * var_0 / 2
     c += (mean_T_0 * mean_T_1 - mean_F_0 * mean_F_1) * cov
@@ -39,7 +39,7 @@ def sub_LDA_2d_fit(X, y):
 def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
     a = dmean_0 * var_1 - dmean_1 * cov
     b = dmean_1 * var_0 - dmean_0 * cov
-    score = np.sum(((a * X[0] + b * X[1] + c) > 0) == y) / X.shape[1]
+    score = np.sum(((a * X[:, 0] + b * X[:, 1] + c) > 0) == y) / X.shape[0]
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = (
         (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-300) / 2
@@ -60,17 +60,18 @@ def QDA_2d(X, y):
 
 @njit(error_model="numpy", fastmath=True)
 def sub_QDA_2d_fit(X, y):
-    classT_X = X[:, y]
-    classF_X = X[:, ~y]
-    pi_T, pi_F = classT_X.shape[1] + 1e-300, classF_X.shape[1] + 1e-300
+    classT_X = X[y]
+    classF_X = X[~y]
+    pi_T, pi_F = classT_X.shape[0] + 1e-300, classF_X.shape[0] + 1e-300
     classT_var_1, classT_var_2, classT_cov = jit_cov(classT_X)
     det_covT = classT_var_1 * classT_var_2 - classT_cov**2 + 1e-300
 
     classF_var_1, classF_var_2, classF_cov = jit_cov(classF_X)
     det_covF = classF_var_1 * classF_var_2 - classF_cov**2 + 1e-300
 
-    mean_T = np.array([np.mean(classT_X[0, :]), np.mean(classT_X[1, :])])
-    mean_F = np.array([np.mean(classF_X[0, :]), np.mean(classF_X[1, :])])
+    mean_T, mean_F = np.mean(classT_X, axis=0), np.mean(classF_X, axis=0)
+    # mean_T = np.array([np.mean(classT_X[:, 0]), np.mean(classT_X[:, 1])])
+    # mean_F = np.array([np.mean(classF_X[:, 0]), np.mean(classF_X[:, 1])])
     return (
         pi_T,
         pi_F,
@@ -104,23 +105,23 @@ def sub_QDA_2d_score(
     det_covT,
     det_covF,
 ):
-    target_x_1 = (X.T - mean_T).T
-    target_x_2 = (X.T - mean_F).T
+    target_x_1 = X - mean_T
+    target_x_2 = X - mean_F
     value1 = (
-        classT_var_2 * target_x_1[0, :] ** 2
-        + classT_var_1 * target_x_1[1, :] ** 2
-        - 2 * classT_cov * target_x_1[0, :] * target_x_1[1, :]
+        classT_var_2 * target_x_1[:, 0] ** 2
+        + classT_var_1 * target_x_1[:, 1] ** 2
+        - 2 * classT_cov * target_x_1[:, 0] * target_x_1[:, 1]
     )
     value1 /= det_covT
     value2 = (
-        classF_var_2 * target_x_2[0, :] ** 2
-        + classF_var_1 * target_x_2[1, :] ** 2
-        - 2 * classF_cov * target_x_2[0, :] * target_x_2[1, :]
+        classF_var_2 * target_x_2[:, 0] ** 2
+        + classF_var_1 * target_x_2[:, 1] ** 2
+        - 2 * classF_cov * target_x_2[:, 0] * target_x_2[:, 1]
     )
     value2 /= det_covF
     value3 = 2 * np.log(pi_T / pi_F) - np.log(np.abs(det_covT / det_covF) + 1e-300)
     value = -value1 + value2 + value3
-    score = np.sum((value > 0) == y) / X.shape[1]
+    score = np.sum((value > 0) == y) / X.shape[0]
 
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = np.log(np.abs(det_covF / det_covT + 1e-300)) / 2 - 1
@@ -149,10 +150,10 @@ def DT_2d(X, y):
 
 
 @njit(error_model="numpy")
-def sub_DT_2d_fit(x, y):
+def sub_DT_2d_fit(X, y):
     # root node
-    border_0, entropy_0, area_predict_0, entropy_0_0, entropy_0_1 = sub_DT_1d_fit(x[0], y)
-    border_1, entropy_1, area_predict_1, entropy_1_0, entropy_1_1 = sub_DT_1d_fit(x[1], y)
+    border_0, entropy_0, area_predict_0, entropy_0_0, entropy_0_1 = sub_DT_1d_fit(X[:, 0], y)
+    border_1, entropy_1, area_predict_1, entropy_1_0, entropy_1_1 = sub_DT_1d_fit(X[:, 1], y)
     if entropy_0 < entropy_1:
         root_node = 0
         root_border = border_0
@@ -166,13 +167,13 @@ def sub_DT_2d_fit(x, y):
         root_entropy_1 = entropy_1_1
         root_area_predict = area_predict_1
 
-    area_0 = x[root_node] < root_border
-    area_1 = x[root_node] >= root_border
+    area_0 = X[:, root_node] < root_border
+    area_1 = X[:, root_node] >= root_border
     predict = np.zeros((2, 2), dtype="bool")
 
     # leaf node  (area_0)
-    border_0, entropy_0, area_predict_0, _, _ = sub_DT_1d_fit(x[0, area_0], y[area_0])
-    border_1, entropy_1, area_predict_1, _, _ = sub_DT_1d_fit(x[1, area_0], y[area_0])
+    border_0, entropy_0, area_predict_0, _, _ = sub_DT_1d_fit(X[area_0, 0], y[area_0])
+    border_1, entropy_1, area_predict_1, _, _ = sub_DT_1d_fit(X[area_0, 1], y[area_0])
 
     if min(entropy_0, entropy_1) < root_entropy_0:
         if entropy_0 < entropy_1:
@@ -189,8 +190,8 @@ def sub_DT_2d_fit(x, y):
         predict[0] = root_area_predict[0]
 
     # leaf node  (area_1)
-    border0, entropy_0, area_predict_0, _, _ = sub_DT_1d_fit(x[0, area_1], y[area_1])
-    border1, entropy_1, area_predict_1, _, _ = sub_DT_1d_fit(x[1, area_1], y[area_1])
+    border0, entropy_0, area_predict_0, _, _ = sub_DT_1d_fit(X[area_1, 0], y[area_1])
+    border1, entropy_1, area_predict_1, _, _ = sub_DT_1d_fit(X[area_1, 1], y[area_1])
 
     if min(entropy_0, entropy_1) < root_entropy_1:
         if entropy_0 < entropy_1:
@@ -219,7 +220,7 @@ def sub_DT_2d_fit(x, y):
 
 @njit(error_model="numpy")
 def sub_DT_2d_score(
-    x,
+    X,
     y,
     root_node,
     root_border,
@@ -229,13 +230,13 @@ def sub_DT_2d_score(
     leaf_1_border,
     predict,
 ):
-    area_0 = x[root_node] < root_border
-    area_0_0 = area_0 & (x[leaf_0_node] < leaf_0_border)
-    area_0_1 = area_0 & (x[leaf_0_node] >= leaf_0_border)
+    area_0 = X[:, root_node] < root_border
+    area_0_0 = area_0 & (X[:, leaf_0_node] < leaf_0_border)
+    area_0_1 = area_0 & (X[:, leaf_0_node] >= leaf_0_border)
 
-    area_1 = x[root_node] >= root_border
-    area_1_0 = area_1 & (x[leaf_1_node] < leaf_1_border)
-    area_1_1 = area_1 & (x[leaf_1_node] >= leaf_1_border)
+    area_1 = X[:, root_node] >= root_border
+    area_1_0 = area_1 & (X[:, leaf_1_node] < leaf_1_border)
+    area_1_1 = area_1 & (X[:, leaf_1_node] >= leaf_1_border)
 
     score = np.sum(y[area_0_0] == predict[0, 0]) + np.sum(y[area_0_1] == predict[0, 1])
     score += np.sum(y[area_1_0] == predict[1, 0]) + np.sum(y[area_1_1] == predict[1, 1])
@@ -275,12 +276,12 @@ def sub_DT_2d_score(
 
 def make_KNN_2d(k=5, name=None):
     @njit(error_model="numpy")
-    def KNN_2d(x, y):
+    def KNN_2d(X, y):
         n_samples = y.shape[0]
         entropy, count = 0, 0
         p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
         for i in range(n_samples):
-            d = (x[0] - x[0, i]) ** 2 + (x[1] - x[1, i]) ** 2
+            d = (X[:, 0] - X[i, 0]) ** 2 + (X[:, 1] - X[i, 1]) ** 2
             index = np.argpartition(d, kth=k + 1)[: k + 1]
             count_T = int(np.sum(y[index]))
             if i in index:
@@ -312,18 +313,18 @@ def make_KNN_2d(k=5, name=None):
 
 
 @njit(error_model="numpy")
-def sub_KNN_2d_fit(x, y):
-    return x, y
+def sub_KNN_2d_fit(X, y):
+    return X, y
 
 
 def make_sub_KNN_2d_score(k=5, name=None):
     @njit(error_model="numpy")
-    def sub_KNN_2d_score(x, y, train_x, train_y):
+    def sub_KNN_2d_score(X, y, train_x, train_y):
         n_samples = y.shape[0]
         entropy, count = 0, 0
         p_arr = np.array([np.log(1 + np.exp(k - 2 * i)) for i in range(k + 1)])
         for i in range(n_samples):
-            d = (train_x[0] - x[0, i]) ** 2 + (train_x[1] - x[1, i]) ** 2
+            d = (train_x[:, 0] - X[i, 0]) ** 2 + (train_x[:, 1] - X[i, 1]) ** 2
             index = np.argpartition(d, kth=k)[:k]
             count_T = int(np.sum(train_y[index]))
             count_F = k - count_T
@@ -359,13 +360,13 @@ def make_sub_KNN_2d_score(k=5, name=None):
 
 def make_WNN_2d(p=2, name=None):
     @njit(error_model="numpy")
-    def WNN_2d_even(x, y):
+    def WNN_2d_even(X, y):
         n_samples = y.shape[0]
-        x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+        X[:, 0] *= quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
         w = np.empty((n_samples, n_samples), dtype="float64")
         for i in range(n_samples):
             w[i, i] = 0
-            w[i, i + 1 :] = 1 / ((x[0, i + 1 :] - x[0, i]) ** p + (x[1, i + 1 :] - x[1, i]) ** p + 1e-300)
+            w[i, i + 1 :] = 1 / ((X[i + 1 :, 0] - X[i, 0]) ** p + (X[i + 1 :, 1] - X[i, 1]) ** p + 1e-300)
             w[i + 1 :, i] = w[i, i + 1 :]
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -373,13 +374,13 @@ def make_WNN_2d(p=2, name=None):
         return -entropy, count
 
     @njit(error_model="numpy")
-    def WNN_2d_odd(x, y):
+    def WNN_2d_odd(X, y):
         n_samples = y.shape[0]
-        x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+        X[:, 0] *= quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
         w = np.empty((n_samples, n_samples), dtype="float64")
         for i in range(n_samples):
             w[i, i] = 0
-            w[i, i + 1 :] = 1 / (np.abs(x[0, i + 1 :] - x[0, i]) ** p + np.abs(x[1, i + 1 :] - x[1, i]) ** p + 1e-300)
+            w[i, i + 1 :] = 1 / (np.abs(X[i + 1 :, 0] - X[i, 0]) ** p + np.abs(X[i + 1 :, 1] - X[i, 1]) ** p + 1e-300)
             w[i + 1 :, i] = w[i, i + 1 :]
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -401,16 +402,16 @@ def make_WNN_2d(p=2, name=None):
 
 
 @njit(error_model="numpy")
-def sub_WNN_2d_fit(x, y):
-    return x, y
+def sub_WNN_2d_fit(X, y):
+    return X, y
 
 
 def make_sub_WNN_2d_score(p=2, name=None):
     @njit(error_model="numpy")
-    def sub_WNN_2d_score_even(x, y, train_x, train_y):
+    def sub_WNN_2d_score_even(X, y, train_X, train_y):
         n_samples = y.shape[0]
-        d = (np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** p
-        d += (np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** p
+        d = (np.repeat(train_X[:, 0], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 0]) ** p
+        d += (np.repeat(train_X[:, 1], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 1]) ** p
         w = 1 / (d + 1e-300)
         w /= np.sum(w, axis=0)
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
@@ -419,10 +420,10 @@ def make_sub_WNN_2d_score(p=2, name=None):
         return -entropy, count
 
     @njit(error_model="numpy")
-    def sub_WNN_2d_score_odd(x, y, train_x, train_y):
+    def sub_WNN_2d_score_odd(X, y, train_X, train_y):
         n_samples = y.shape[0]
-        d = np.abs(np.repeat(train_x[0], n_samples).reshape((train_x.shape[1], n_samples)) - x[0]) ** p
-        d += np.abs(np.repeat(train_x[1], n_samples).reshape((train_x.shape[1], n_samples)) - x[1]) ** p
+        d = np.abs(np.repeat(train_X[:, 0], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 0]) ** p
+        d += np.abs(np.repeat(train_X[:, 1], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 1]) ** p
         w = 1 / (d + 1e-300)
         w /= np.sum(w, axis=0)
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
@@ -453,13 +454,13 @@ def make_sub_WNN_2d_score(p=2, name=None):
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def WGNN_2d(x, y):
+def WGNN_2d(X, y):
     n_samples = y.shape[0]
-    x[0] *= quartile_deviation(x[1]) / quartile_deviation(x[0])
+    X[:, 0] *= quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
     d_2 = np.empty((n_samples, n_samples), dtype="float64")
     for i in range(n_samples):
         d_2[i, i] = 0
-        d_2[i, i + 1 :] = (x[0, i + 1 :] - x[0, i]) ** 2 + (x[1, i + 1 :] - x[1, i]) ** 2
+        d_2[i, i + 1 :] = (X[i + 1 :, 0] - X[i, 0]) ** 2 + (X[i + 1 :, 1] - X[i, 1]) ** 2
         d_2[i + 1 :, i] = d_2[i, i + 1 :]
     w = np.exp(-d_2 * n_samples / (2 * np.sum(d_2, axis=0)))
     p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
@@ -469,13 +470,10 @@ def WGNN_2d(x, y):
 
 
 ### Hull_2d
-KNN_2d_for_Hull = make_KNN_2d(k=1)
-
-
 @njit(error_model="numpy")
 def Spearman_coefficient(X):
-    index0 = np.argsort(np.argsort(X[0]))
-    index1 = np.argsort(np.argsort(X[1]))
+    index0 = np.argsort(np.argsort(X[:, 0]))
+    index1 = np.argsort(np.argsort(X[:, 1]))
     n = index0.shape[0]
     r_R = np.abs(1 - 6 * np.sum((index0 - index1) ** 2) / (n * (n**2 - 1)))
     return r_R
@@ -483,14 +481,14 @@ def Spearman_coefficient(X):
 
 @njit(error_model="numpy")
 def checker(X, y):
-    X_T = X[:, y].copy()
-    X_F = X[:, ~y].copy()
+    X_T = X[y].copy()
+    X_F = X[~y].copy()
     min_d = np.empty(y.shape[0], dtype="float64")
     for i in range(y.shape[0]):
         if y[i]:
-            min_d[i] = np.sqrt(np.min((X_F[0] - X[0, i]) ** 2 + (X_F[1] - X[1, i]) ** 2))
+            min_d[i] = np.sqrt(np.min((X_F[:, 0] - X[i, 0]) ** 2 + (X_F[:, 1] - X[i, 1]) ** 2))
         else:
-            min_d[i] = np.sqrt(np.min((X_T[0] - X[0, i]) ** 2 + (X_T[1] - X[1, i]) ** 2))
+            min_d[i] = np.sqrt(np.min((X_T[:, 0] - X[i, 0]) ** 2 + (X_T[:, 1] - X[i, 1]) ** 2))
     var_1, var_2, _ = jit_cov(X)
     sum_min_d = np.mean(np.sort(min_d)[: (4 * y.shape[0]) // 5])
     normalized_sum_min_d = sum_min_d / np.sqrt(var_1 + var_2)
@@ -504,16 +502,16 @@ def Hull_2d(X, y):
         return 0, -np.inf
     Nan_number = -100
     var_0, var_1, _ = jit_cov(X, ddof=0)
-    normalized_X = (X.T / np.array([var_0, var_1])).T
-    classT_X, classF_X = normalized_X[:, y], normalized_X[:, ~y]
+    normalized_X = X / np.array([var_0, var_1])
+    classT_X, classF_X = normalized_X[y], normalized_X[~y]
     EdgeX = np.full((2, max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
     filled_index = np.zeros(2, dtype="int64")
-    index_x_max = np.argmax(classT_X[0])
-    index_x_min = np.argmin(classT_X[0])
-    arange = np.arange(classT_X.shape[1])
-    classT_X_mask = np.zeros(classT_X.shape[1], dtype="int64")
-    not_is_in = np.ones(classF_X.shape[1], dtype="bool")
-    Edge_T = np.full((classT_X.shape[1] + 1), Nan_number, dtype="int64")
+    index_x_max = np.argmax(classT_X[:, 0])
+    index_x_min = np.argmin(classT_X[:, 0])
+    arange = np.arange(classT_X.shape[0])
+    classT_X_mask = np.zeros(classT_X.shape[0], dtype="int64")
+    not_is_in = np.ones(classF_X.shape[0], dtype="bool")
+    Edge_T = np.full((classT_X.shape[0] + 1), Nan_number, dtype="int64")
     Edge_T[0] = index_x_min
     n = np.zeros(1, dtype="int64")
     classT_X_mask[index_x_max] = -1
@@ -526,17 +524,17 @@ def Hull_2d(X, y):
     classT_X_mask[index_x_min] = -1
     sub_Hull_2d(classT_X, classF_X, not_is_in, arange, 1, index_x_min, index_x_max, classT_X_mask, Edge_T, n)
     Edge_T[n[0] + 1] = index_x_min
-    EdgeX[0, : n[0] + 2] = classT_X[:, Edge_T[: n[0] + 2]].T
+    EdgeX[0, : n[0] + 2] = classT_X[Edge_T[: n[0] + 2]]
     filled_index[0] = n[0] + 2
 
     ans = np.sum(~not_is_in)
 
-    index_x_max = np.argmax(classF_X[0])
-    index_x_min = np.argmin(classF_X[0])
-    arange = np.arange(classF_X.shape[1])
-    classF_X_mask = np.zeros(classF_X.shape[1], dtype="int64")
-    not_is_in = np.ones(classT_X.shape[1], dtype="bool")
-    Edge_F = np.full((classF_X.shape[1] + 1), Nan_number, dtype="int64")
+    index_x_max = np.argmax(classF_X[:, 0])
+    index_x_min = np.argmin(classF_X[:, 0])
+    arange = np.arange(classF_X.shape[0])
+    classF_X_mask = np.zeros(classF_X.shape[0], dtype="int64")
+    not_is_in = np.ones(classT_X.shape[0], dtype="bool")
+    Edge_F = np.full((classF_X.shape[0] + 1), Nan_number, dtype="int64")
     Edge_F[0] = index_x_min
     n[0] = 0
     classF_X_mask[index_x_max] = -1
@@ -549,7 +547,7 @@ def Hull_2d(X, y):
     classF_X_mask[index_x_min] = -1
     sub_Hull_2d(classF_X, classT_X, not_is_in, arange, 1, index_x_min, index_x_max, classF_X_mask, Edge_F, n)
     Edge_F[n[0] + 1] = index_x_min
-    EdgeX[1, : n[0] + 2] = classF_X[:, Edge_F[: n[0] + 2]].T
+    EdgeX[1, : n[0] + 2] = classF_X[Edge_F[: n[0] + 2]]
     filled_index[1] = n[0] + 2
     EdgeX = EdgeX[:, : np.max(filled_index)].copy()
     ans += np.sum(~not_is_in)
@@ -637,27 +635,27 @@ def Hull_2d(X, y):
 
 
 @njit(error_model="numpy")
-def sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_count, base_index_front, base_index_back, mask, Edge, n):
-    base_vec = base_x[:, base_index_front] - base_x[:, base_index_back]
+def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front, base_index_back, mask, Edge, n):
+    base_vec = base_X[base_index_front] - base_X[base_index_back]
     target_index = arange[mask == (loop_count - 1)]
-    bec_xy = base_x[:, target_index] - np.expand_dims(base_x[:, base_index_back], axis=1)
-    cross = base_vec[0] * bec_xy[1] - base_vec[1] * bec_xy[0]
+    bec_xy = base_X[target_index] - base_X[base_index_back]
+    cross = base_vec[0] * bec_xy[:, 1] - base_vec[1] * bec_xy[:, 0]
     if np.any(cross > 0):
         next_point = np.argmax(cross)
         next_index = target_index[next_point]
         mask[target_index[0 < cross]] = loop_count
         mask[next_index] = loop_count - 1
-        use_other_x = other_x[:, not_is_in] - np.expand_dims(base_x[:, base_index_back], axis=1)
+        use_other_X = other_X[not_is_in] - base_X[base_index_back]
         num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
-        num_is_in[0] = base_vec[1] * use_other_x[0] - base_vec[0] * use_other_x[1]
-        num_is_in[1] = -bec_xy[1, next_point] * use_other_x[0] + bec_xy[0, next_point] * use_other_x[1]
-        num_is_in /= bec_xy[0, next_point] * base_vec[1] - base_vec[0] * bec_xy[1, next_point]
+        num_is_in[0] = base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]
+        num_is_in[1] = -bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]
+        num_is_in /= bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
         not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
         loop_next = loop_count + 1
-        sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
+        sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
         Edge[n[0] + 1] = next_index
         n[0] += 1
-        sub_Hull_2d(base_x, other_x, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
+        sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
 
 
 @njit(error_model="numpy")
@@ -708,8 +706,8 @@ def CV_model_2d(sub_func_fit, sub_func_score, k=5, name=None):
         sum_score1, sum_score2 = 0, 0
         for i in range(k):
             TF[index[i::k]] = False
-            args = sub_func_fit(X[:, TF], y[TF])
-            score1, score2 = sub_func_score(X[:, ~TF], y[~TF], *args)
+            args = sub_func_fit(X[TF], y[TF])
+            score1, score2 = sub_func_score(X[~TF], y[~TF], *args)
             sum_score1 += score1
             sum_score2 += score2
             TF[index[i::k]] = True

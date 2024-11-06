@@ -44,7 +44,7 @@ def SO(
     model_score : callable
         func that returns a score,jit compilation by numba is required.
         Parameters
-            - x : ndarray of shape (combination_dim,n_samples)
+            - x : ndarray of shape (n_samples,combination_dim)
                 Combination created from List_x.
             - y : ndarray of shape (n_samples)
                 Target values or labels.
@@ -330,7 +330,7 @@ def sub_SO_loop(
         border1, border2 = np.finfo(np.float64).min, np.finfo(np.float64).min
         min_index = 0
         index_arr = np.zeros((how_many_to_choose), dtype="int64")
-        selected_X = np.empty((how_many_to_choose, arr_x.shape[2]), dtype="float64")
+        selected_X = np.empty((arr_x.shape[2], how_many_to_choose), dtype="float64")
         check_list = make_check_list(arr_which_arr_to_choose_from)
         first_num = conunter[thread_id]
         for i in range(first_num, repeat, num_threads):
@@ -338,7 +338,7 @@ def sub_SO_loop(
             if not is_calc:
                 continue
             for j, k in enumerate(index_arr):
-                selected_X[j] = arr_x[arr_which_arr_to_choose_from[j], k]
+                selected_X[:, j] = arr_x[arr_which_arr_to_choose_from[j], k]
             score1, score2 = model_score(selected_X, y)
             if not np.isnan(score1):
                 if score1 > border1:

@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nb_sisso"
-version = "0.1"
+version = "0.2"
 description = "説明"
-#readme = "README.md、相対ぱす"
+readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT License"}
 authors = [{name = "souno1218", email = "supinosaurusuz@gmail.com"},]
