@@ -299,7 +299,7 @@ def make_KNN_2d(k=5, name=None):
                     count += 1
         count /= n_samples
         entropy /= n_samples
-        return -entropy, count
+        return count, -entropy
 
     model = KNN_2d
     if name is None:
@@ -338,7 +338,7 @@ def make_sub_KNN_2d_score(k=5, name=None):
                     count += 1
         count /= n_samples
         entropy /= n_samples
-        return -entropy, count
+        return count, -entropy
 
     model = sub_KNN_2d_score
     if name is None:
@@ -371,7 +371,7 @@ def make_WNN_2d(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     @njit(error_model="numpy")
     def WNN_2d_odd(X, y):
@@ -385,7 +385,7 @@ def make_WNN_2d(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     if p % 2 == 0:
         model = WNN_2d_even
@@ -417,7 +417,7 @@ def make_sub_WNN_2d_score(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     @njit(error_model="numpy")
     def sub_WNN_2d_score_odd(X, y, train_X, train_y):
@@ -429,7 +429,7 @@ def make_sub_WNN_2d_score(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     if p % 2 == 0:
         model = sub_WNN_2d_score_even
@@ -451,9 +451,7 @@ def make_sub_WNN_2d_score(p=2, name=None):
 # clf = KNeighborsClassifier(n_neighbors=t.shape[0]-1,weights=lambda d: 1/d**2)
 # from sklearn.model_selection import LeaveOneOut
 # LeaveOneOutCV
-
-
-@njit(error_model="numpy")  # ,fastmath=True)
+@njit(error_model="numpy")
 def WGNN_2d(X, y):
     n_samples = y.shape[0]
     X[:, 0] *= quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
@@ -466,7 +464,7 @@ def WGNN_2d(X, y):
     p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-    return -entropy, count
+    return count, -entropy
 
 
 ### Hull_2d
@@ -480,22 +478,6 @@ def Spearman_coefficient(X):
 
 
 @njit(error_model="numpy")
-def checker(X, y):
-    X_T = X[y].copy()
-    X_F = X[~y].copy()
-    min_d = np.empty(y.shape[0], dtype="float64")
-    for i in range(y.shape[0]):
-        if y[i]:
-            min_d[i] = np.sqrt(np.min((X_F[:, 0] - X[i, 0]) ** 2 + (X_F[:, 1] - X[i, 1]) ** 2))
-        else:
-            min_d[i] = np.sqrt(np.min((X_T[:, 0] - X[i, 0]) ** 2 + (X_T[:, 1] - X[i, 1]) ** 2))
-    var_1, var_2, _ = jit_cov(X)
-    sum_min_d = np.mean(np.sort(min_d)[: (4 * y.shape[0]) // 5])
-    normalized_sum_min_d = sum_min_d / np.sqrt(var_1 + var_2)
-    return normalized_sum_min_d
-
-
-@njit(error_model="numpy")
 def Hull_2d(X, y):
     r_R = Spearman_coefficient(X)
     if r_R > 0.9:
@@ -504,14 +486,14 @@ def Hull_2d(X, y):
     var_0, var_1, _ = jit_cov(X, ddof=0)
     normalized_X = X / np.array([var_0, var_1])
     classT_X, classF_X = normalized_X[y], normalized_X[~y]
-    EdgeX = np.full((2, max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
+    EdgeX = np.full((2, 2 * max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
     filled_index = np.zeros(2, dtype="int64")
     index_x_max = np.argmax(classT_X[:, 0])
     index_x_min = np.argmin(classT_X[:, 0])
     arange = np.arange(classT_X.shape[0])
     classT_X_mask = np.zeros(classT_X.shape[0], dtype="int64")
     not_is_in = np.ones(classF_X.shape[0], dtype="bool")
-    Edge_T = np.full((classT_X.shape[0] + 1), Nan_number, dtype="int64")
+    Edge_T = np.full((2 * classT_X.shape[0] + 1), Nan_number, dtype="int64")
     Edge_T[0] = index_x_min
     n = np.zeros(1, dtype="int64")
     classT_X_mask[index_x_max] = -1
@@ -534,7 +516,7 @@ def Hull_2d(X, y):
     arange = np.arange(classF_X.shape[0])
     classF_X_mask = np.zeros(classF_X.shape[0], dtype="int64")
     not_is_in = np.ones(classT_X.shape[0], dtype="bool")
-    Edge_F = np.full((classF_X.shape[0] + 1), Nan_number, dtype="int64")
+    Edge_F = np.full((2 * classF_X.shape[0] + 1), Nan_number, dtype="int64")
     Edge_F[0] = index_x_min
     n[0] = 0
     classF_X_mask[index_x_max] = -1
@@ -628,7 +610,7 @@ def Hull_2d(X, y):
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
-        if cross_count / Edge_count > 0.5:
+        if cross_count / Edge_count > 0.2:
             return 0, -np.inf
         else:
             return score, -S
@@ -640,17 +622,17 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
     target_index = arange[mask == (loop_count - 1)]
     bec_xy = base_X[target_index] - base_X[base_index_back]
     cross = base_vec[0] * bec_xy[:, 1] - base_vec[1] * bec_xy[:, 0]
-    if np.any(cross > 0):
+    if np.any(cross >= 0):
         next_point = np.argmax(cross)
         next_index = target_index[next_point]
-        mask[target_index[0 < cross]] = loop_count
+        mask[target_index[0 <= cross]] = loop_count
         mask[next_index] = loop_count - 1
         use_other_X = other_X[not_is_in] - base_X[base_index_back]
-        num_is_in = np.empty((2, np.sum(not_is_in)), dtype="float")
-        num_is_in[0] = base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]
-        num_is_in[1] = -bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]
-        num_is_in /= bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
-        not_is_in[not_is_in] = ((num_is_in[0] + num_is_in[1]) > 1) | (0 > num_is_in[0]) | (0 > num_is_in[1])
+        # https://qiita.com/bunnyhopper_isolated/items/999aa27b33451ba532ea
+        w_0 = base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]
+        w_1 = -bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]
+        det = bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
+        not_is_in[not_is_in] = ((w_0 + w_0) > det) | (0 > w_0) | (0 > w_1)
         loop_next = loop_count + 1
         sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
         Edge[n[0] + 1] = next_index
@@ -662,22 +644,63 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
 def cross_coordinate(x1, x2, x3, x4):
     # A=(x2-x1)とB=(x4-x3)の交点
     cross_x = np.full((2), np.nan, dtype="float64")
-    if x1[0] == x2[0]:
-        if x3[0] == x4[0]:
+    if np.allclose(x1, x2):
+        return cross_x, np.nan
+    if np.allclose(x1, x3):
+        x3 += 1e-100
+    if np.allclose(x1, x4):
+        x4 += 1e-100
+    if np.allclose(x2, x3):
+        x3 += 1e-100
+    if np.allclose(x2, x4):
+        x4 += 1e-100
+    if np.allclose(x3, x4):
+        return cross_x, np.nan
+    if np.isclose(x1[0], x2[0]):
+        if np.isclose(x3[0], x4[0]):
+            if np.isclose(x1[0], x3[0]):
+                is_in_3 = (min(x1[1], x2[1]) <= x3[1]) and (x3[1] <= max(x1[1], x2[1]))
+                is_in_4 = (min(x1[1], x2[1]) <= x4[1]) and (x4[1] <= max(x1[1], x2[1]))
+                if is_in_3:
+                    cross_x[0] = x1[0]
+                    d3 = np.abs(x3[1] - x1[1])
+                    if is_in_4:
+                        d4 = np.abs(x4[1] - x1[1])
+                        cross_x[1] = x3[1] if d3 < d4 else x4[1]
+                        return cross_x, min(d3, d4)
+                    else:
+                        cross_x[1] = x3[1]
+                        return cross_x, d3
+                elif is_in_4:
+                    cross_x[0] = x1[0]
+                    cross_x[1] = x4[1]
+                    return cross_x, np.abs(x4[1] - x1[1])
             return cross_x, np.nan
         else:
             x = x1[0]
             y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
-    elif x3[0] == x4[0]:
+    elif np.isclose(x3[0], x4[0]):
         x = x3[0]
         y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
-    elif x1[0] == x3[0]:
-        if x1[1] == x3[1]:
-            return cross_x, np.nan
     else:
         a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
         a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
-        if a1 == a3:
+        if np.isclose(a1, a3):
+            if np.isclose(x1[1] - a1 * x1[0], x3[1] - a3 * x3[0]):
+                is_in_3 = (min(x1[1], x2[1]) <= x3[1]) and (x3[1] <= max(x1[1], x2[1]))
+                is_in_4 = (min(x1[1], x2[1]) <= x4[1]) and (x4[1] <= max(x1[1], x2[1]))
+                if is_in_3:
+                    d3 = np.sqrt((x3[0] - x1[0]) ** 2 + (x3[1] - x1[1]) ** 2)
+                    if is_in_4:
+                        d4 = np.sqrt((x4[0] - x1[0]) ** 2 + (x4[1] - x1[1]) ** 2)
+                        cross_x[:] = x3 if d3 < d4 else x4
+                        return cross_x, min(d3, d4)
+                    else:
+                        cross_x[:] = x3
+                        return cross_x, d3
+                elif is_in_4:
+                    cross_x[:] = x4
+                    return cross_x, np.sqrt((x4[0] - x1[0]) ** 2 + (x4[1] - x1[1]) ** 2)
             return cross_x, np.nan
         else:
             x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)

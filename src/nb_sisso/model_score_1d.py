@@ -193,7 +193,7 @@ def make_KNN_1d(k=5, name=None):
                     count += 1
         count /= n_samples
         entropy /= n_samples
-        return -entropy, count
+        return count, -entropy
 
     model = KNN_1d
     if name is None:
@@ -232,7 +232,7 @@ def make_sub_KNN_1d_score(k=5, name=None):
                     count += 1
         count /= n_samples
         entropy /= n_samples
-        return -entropy, count
+        return count, -entropy
 
     model = sub_KNN_1d_score
     if name is None:
@@ -264,7 +264,7 @@ def make_WNN_1d(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     @njit(error_model="numpy")
     def WNN_1d_odd(x, y):
@@ -277,7 +277,7 @@ def make_WNN_1d(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     if p % 2 == 0:
         model = WNN_1d_even
@@ -307,7 +307,7 @@ def make_sub_WNN_1d_score(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     @njit(error_model="numpy")
     def sub_WNN_1d_score_odd(x, y, train_x, train_y):
@@ -317,7 +317,7 @@ def make_sub_WNN_1d_score(p=2, name=None):
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
         count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-        return -entropy, count
+        return count, -entropy
 
     if p % 2 == 0:
         model = sub_WNN_1d_score_even
@@ -353,7 +353,7 @@ def WGNN_1d(x, y):
     p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
     entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
     count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-    return -entropy, count
+    return count, -entropy
 
 
 ### Hull
