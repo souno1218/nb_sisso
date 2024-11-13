@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from .utils import jit_cov, quartile_deviation
+from .utils import jit_cov, quartile_deviation, nb_allclose
 from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
@@ -589,7 +589,7 @@ def Hull_2d(X, y):
             Edge_count += 1
             last_index = (last_index + 1) % (filled_index[index] - 1)
 
-        while not np.allclose(first, next):
+        while not nb_allclose(first, next, rtol=1e-010, atol=0):
             now, next = next, EdgeX[index, last_index]
             cross = False
             for j in range(filled_index[nindex] - 1):
@@ -610,7 +610,7 @@ def Hull_2d(X, y):
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
-        if cross_count / Edge_count > 0.2:
+        if cross_count / Edge_count > 0.1:
             return 0, -np.inf
         else:
             return score, -S
@@ -622,17 +622,17 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
     target_index = arange[mask == (loop_count - 1)]
     bec_xy = base_X[target_index] - base_X[base_index_back]
     cross = base_vec[0] * bec_xy[:, 1] - base_vec[1] * bec_xy[:, 0]
-    if np.any(cross >= 0):
+    if np.any(cross > 0):
         next_point = np.argmax(cross)
         next_index = target_index[next_point]
-        mask[target_index[0 <= cross]] = loop_count
+        mask[target_index[0 < cross]] = loop_count
         mask[next_index] = loop_count - 1
         use_other_X = other_X[not_is_in] - base_X[base_index_back]
         # https://qiita.com/bunnyhopper_isolated/items/999aa27b33451ba532ea
-        w_0 = base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]
-        w_1 = -bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]
         det = bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
-        not_is_in[not_is_in] = ((w_0 + w_0) > det) | (0 > w_0) | (0 > w_1)
+        w_0 = (base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]) / det
+        w_1 = (-bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]) / det
+        not_is_in[not_is_in] = ((w_0 + w_1) > 1) | (0 > w_0) | (0 > w_1)
         loop_next = loop_count + 1
         sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
         Edge[n[0] + 1] = next_index
@@ -644,23 +644,23 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
 def cross_coordinate(x1, x2, x3, x4):
     # A=(x2-x1)とB=(x4-x3)の交点
     cross_x = np.full((2), np.nan, dtype="float64")
-    if np.allclose(x1, x2):
+    if nb_allclose(x1, x2, rtol=1e-010, atol=0):
         return cross_x, np.nan
-    if np.allclose(x1, x3):
-        x3 += 1e-100
-    if np.allclose(x1, x4):
-        x4 += 1e-100
-    if np.allclose(x2, x3):
-        x3 += 1e-100
-    if np.allclose(x2, x4):
-        x4 += 1e-100
-    if np.allclose(x3, x4):
+    if nb_allclose(x3, x4, rtol=1e-010, atol=0):
         return cross_x, np.nan
-    if np.isclose(x1[0], x2[0]):
-        if np.isclose(x3[0], x4[0]):
-            if np.isclose(x1[0], x3[0]):
-                is_in_3 = (min(x1[1], x2[1]) <= x3[1]) and (x3[1] <= max(x1[1], x2[1]))
-                is_in_4 = (min(x1[1], x2[1]) <= x4[1]) and (x4[1] <= max(x1[1], x2[1]))
+    if nb_allclose(x1, x3, rtol=1e-010, atol=0):
+        x3 += 1e-100
+    if nb_allclose(x1, x4, rtol=1e-010, atol=0):
+        x4 += 1e-100
+    if nb_allclose(x2, x3, rtol=1e-010, atol=0):
+        x3 += 1e-100
+    if nb_allclose(x2, x4, rtol=1e-010, atol=0):
+        x4 += 1e-100
+    if x1[0] == x2[0]:
+        if x3[0] == x4[0]:
+            if x1[0] == x3[0]:
+                is_in_3 = min(x1[1], x2[1]) <= x3[1] <= max(x1[1], x2[1])
+                is_in_4 = min(x1[1], x2[1]) <= x4[1] <= max(x1[1], x2[1])
                 if is_in_3:
                     cross_x[0] = x1[0]
                     d3 = np.abs(x3[1] - x1[1])
@@ -679,14 +679,14 @@ def cross_coordinate(x1, x2, x3, x4):
         else:
             x = x1[0]
             y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
-    elif np.isclose(x3[0], x4[0]):
+    elif x3[0] == x4[0]:
         x = x3[0]
         y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
     else:
         a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
         a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
-        if np.isclose(a1, a3):
-            if np.isclose(x1[1] - a1 * x1[0], x3[1] - a3 * x3[0]):
+        if a1 == a3:
+            if x1[1] - a1 * x1[0] == x3[1] - a3 * x3[0]:
                 is_in_3 = (min(x1[1], x2[1]) <= x3[1]) and (x3[1] <= max(x1[1], x2[1]))
                 is_in_4 = (min(x1[1], x2[1]) <= x4[1]) and (x4[1] <= max(x1[1], x2[1]))
                 if is_in_3:

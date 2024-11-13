@@ -264,6 +264,20 @@ def quartile_deviation(x):
             return (sorted_x[3 * n_4 + 2] - sorted_x[n_4]) / 2
 
 
+@njit(error_model="numpy")
+def nb_isclose(a, b, rtol=1e-05, atol=1e-08):
+    return np.abs(a - b) <= (atol + rtol * np.abs(b))
+
+
+@njit(error_model="numpy")
+def nb_allclose(arr1, arr2, rtol=1e-05, atol=1e-08):
+    # dim is 1 only, need arr1.shape==arr2.shape
+    for i in range(arr1.shape[0]):
+        if not nb_isclose(arr1[i], arr2[i], rtol=rtol, atol=atol):
+            return False
+    return True
+
+
 def p_upper_x(n, x, pattern):
     def bin(x):
         # 二項分布の正規近似
