@@ -509,7 +509,7 @@ def Hull_2d(X, y):
     EdgeX[0, : n[0] + 2] = classT_X[Edge_T[: n[0] + 2]]
     filled_index[0] = n[0] + 2
 
-    ans = np.sum(~not_is_in)
+    count = np.sum(~not_is_in)
 
     index_x_max = np.argmax(classF_X[:, 0])
     index_x_min = np.argmin(classF_X[:, 0])
@@ -532,8 +532,7 @@ def Hull_2d(X, y):
     EdgeX[1, : n[0] + 2] = classF_X[Edge_F[: n[0] + 2]]
     filled_index[1] = n[0] + 2
     EdgeX = EdgeX[:, : np.max(filled_index)].copy()
-    ans += np.sum(~not_is_in)
-    score = 1 - (ans / (y.shape[0]))
+    count += np.sum(~not_is_in)
 
     S_arr = np.zeros(2, dtype="float64")
     for i in [0, 1]:
@@ -556,17 +555,18 @@ def Hull_2d(X, y):
             break
     S_overlap = 0
     if np.isinf(tot_d):
-        mins_x1_max = np.max(EdgeX[index, : filled_index[nindex], 0])
-        mins_x1_min = np.min(EdgeX[index, : filled_index[nindex], 0])
-        mins_x2_max = np.max(EdgeX[index, : filled_index[nindex], 1])
-        x2_max = np.max(EdgeX[nindex, : filled_index[nindex], 1])
-        mins_x2_min = np.min(EdgeX[index, : filled_index[nindex], 1])
-        x2_min = np.min(EdgeX[nindex, : filled_index[nindex], 1])
-        if (mins_x1_max < mins_x1_min) or (mins_x2_max < x2_min) or (mins_x2_min > x2_max):
-            return score, 0
+        small_x1_max = np.max(EdgeX[index, : filled_index[index], 0])
+        small_x2_max = np.max(EdgeX[index, : filled_index[index], 1])
+        small_x2_min = np.min(EdgeX[index, : filled_index[index], 1])
+        large_x1_min = np.min(EdgeX[nindex, : filled_index[nindex], 0])
+        large_x2_max = np.max(EdgeX[nindex, : filled_index[nindex], 1])
+        large_x2_min = np.min(EdgeX[nindex, : filled_index[nindex], 1])
+        if (small_x1_max < large_x1_min) or (small_x2_max < large_x2_min) or (large_x2_max < small_x2_min):
+            return 1, 0
         else:
             S_overlap = S_arr[nindex]
             S = S_overlap / np.min(S_arr)
+            score = 1 - (count / (y.shape[0]))
             return score, -S
     else:
         cross_count = 0
@@ -610,9 +610,13 @@ def Hull_2d(X, y):
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
+        if S >= 1:
+            return 0, -np.inf
         if cross_count / Edge_count > 0.1:
             return 0, -np.inf
         else:
+            n_overlap = Edge_count - cross_count
+            score = 1 - ((count - n_overlap) / (y.shape[0]))
             return score, -S
 
 
