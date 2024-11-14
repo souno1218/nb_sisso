@@ -19,8 +19,8 @@ def LDA_2d(X, y):
 
 @njit(error_model="numpy", fastmath=True)
 def sub_LDA_2d_fit(X, y):
-    pi_T = np.sum(y) + 1e-300
-    pi_F = np.sum(~y) + 1e-300
+    pi_T = np.sum(y) + 1e-14
+    pi_F = np.sum(~y) + 1e-14
     classT_var_0, classT_var_1, classT_cov = jit_cov(X[y], ddof=0)
     classF_var_0, classF_var_1, classF_cov = jit_cov(X[~y], ddof=0)
     var_0 = (pi_T * classT_var_0 + pi_F * classF_var_0) / (pi_T + pi_F)
@@ -42,7 +42,7 @@ def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
     score = np.sum(((a * X[:, 0] + b * X[:, 1] + c) > 0) == y) / X.shape[0]
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = (
-        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-300) / 2
+        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-14) / 2
     )
     return score, kl_d
 
@@ -62,12 +62,12 @@ def QDA_2d(X, y):
 def sub_QDA_2d_fit(X, y):
     classT_X = X[y]
     classF_X = X[~y]
-    pi_T, pi_F = classT_X.shape[0] + 1e-300, classF_X.shape[0] + 1e-300
+    pi_T, pi_F = classT_X.shape[0] + 1e-14, classF_X.shape[0] + 1e-14
     classT_var_1, classT_var_2, classT_cov = jit_cov(classT_X)
-    det_covT = classT_var_1 * classT_var_2 - classT_cov**2 + 1e-300
+    det_covT = classT_var_1 * classT_var_2 - classT_cov**2 + 1e-14
 
     classF_var_1, classF_var_2, classF_cov = jit_cov(classF_X)
-    det_covF = classF_var_1 * classF_var_2 - classF_cov**2 + 1e-300
+    det_covF = classF_var_1 * classF_var_2 - classF_cov**2 + 1e-14
 
     mean_T, mean_F = np.mean(classT_X, axis=0), np.mean(classF_X, axis=0)
     # mean_T = np.array([np.mean(classT_X[:, 0]), np.mean(classT_X[:, 1])])
@@ -119,12 +119,12 @@ def sub_QDA_2d_score(
         - 2 * classF_cov * target_x_2[:, 0] * target_x_2[:, 1]
     )
     value2 /= det_covF
-    value3 = 2 * np.log(pi_T / pi_F) - np.log(np.abs(det_covT / det_covF) + 1e-300)
+    value3 = 2 * np.log(pi_T / pi_F) - np.log(np.abs(det_covT / det_covF) + 1e-14)
     value = -value1 + value2 + value3
     score = np.sum((value > 0) == y) / X.shape[0]
 
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
-    kl_d = np.log(np.abs(det_covF / det_covT + 1e-300)) / 2 - 1
+    kl_d = np.log(np.abs(det_covF / det_covT + 1e-14)) / 2 - 1
     kl_d += (classF_var_2 * classT_var_1 + classF_var_1 * classT_var_2 - 2 * classT_cov * classF_cov) / det_covF / 2
     dmean = mean_T - mean_F
     kl_d += (
@@ -241,18 +241,18 @@ def sub_DT_2d_score(
     score = np.sum(y[area_0_0] == predict[0, 0]) + np.sum(y[area_0_1] == predict[0, 1])
     score += np.sum(y[area_1_0] == predict[1, 0]) + np.sum(y[area_1_1] == predict[1, 1])
     score /= y.shape[0]
-    n_area_0_0 = np.sum(area_0_0) + 1e-300
-    n_area_0_0_T = np.sum(y[area_0_0]) + 1e-300
-    n_area_0_0_F = n_area_0_0 - n_area_0_0_T + 1e-300
-    n_area_0_1 = np.sum(area_0_1) + 1e-300
-    n_area_0_1_T = np.sum(y[area_0_1]) + 1e-300
-    n_area_0_1_F = n_area_0_1 - n_area_0_1_T + 1e-300
-    n_area_1_0 = np.sum(area_1_0) + 1e-300
-    n_area_1_0_T = np.sum(y[area_1_0]) + 1e-300
-    n_area_1_0_F = n_area_1_0 - n_area_1_0_T + 1e-300
-    n_area_1_1 = np.sum(area_1_1) + 1e-300
-    n_area_1_1_T = np.sum(y[area_1_1]) + 1e-300
-    n_area_1_1_F = n_area_1_1 - n_area_1_1_T + 1e-300
+    n_area_0_0 = np.sum(area_0_0) + 1e-14
+    n_area_0_0_T = np.sum(y[area_0_0]) + 1e-14
+    n_area_0_0_F = n_area_0_0 - n_area_0_0_T + 1e-14
+    n_area_0_1 = np.sum(area_0_1) + 1e-14
+    n_area_0_1_T = np.sum(y[area_0_1]) + 1e-14
+    n_area_0_1_F = n_area_0_1 - n_area_0_1_T + 1e-14
+    n_area_1_0 = np.sum(area_1_0) + 1e-14
+    n_area_1_0_T = np.sum(y[area_1_0]) + 1e-14
+    n_area_1_0_F = n_area_1_0 - n_area_1_0_T + 1e-14
+    n_area_1_1 = np.sum(area_1_1) + 1e-14
+    n_area_1_1_T = np.sum(y[area_1_1]) + 1e-14
+    n_area_1_1_F = n_area_1_1 - n_area_1_1_T + 1e-14
     entropy = (
         n_area_0_0_T * np.log2(n_area_0_0_T / n_area_0_0)
         + n_area_0_0_F * np.log2(n_area_0_0_F / n_area_0_0)
@@ -366,7 +366,7 @@ def make_WNN_2d(p=2, name=None):
         w = np.empty((n_samples, n_samples), dtype="float64")
         for i in range(n_samples):
             w[i, i] = 0
-            w[i, i + 1 :] = 1 / ((X[i + 1 :, 0] - X[i, 0]) ** p + (X[i + 1 :, 1] - X[i, 1]) ** p + 1e-300)
+            w[i, i + 1 :] = 1 / ((X[i + 1 :, 0] - X[i, 0]) ** p + (X[i + 1 :, 1] - X[i, 1]) ** p + 1e-14)
             w[i + 1 :, i] = w[i, i + 1 :]
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -380,7 +380,7 @@ def make_WNN_2d(p=2, name=None):
         w = np.empty((n_samples, n_samples), dtype="float64")
         for i in range(n_samples):
             w[i, i] = 0
-            w[i, i + 1 :] = 1 / (np.abs(X[i + 1 :, 0] - X[i, 0]) ** p + np.abs(X[i + 1 :, 1] - X[i, 1]) ** p + 1e-300)
+            w[i, i + 1 :] = 1 / (np.abs(X[i + 1 :, 0] - X[i, 0]) ** p + np.abs(X[i + 1 :, 1] - X[i, 1]) ** p + 1e-14)
             w[i + 1 :, i] = w[i, i + 1 :]
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[y], axis=0) / np.sum(w, axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -412,7 +412,7 @@ def make_sub_WNN_2d_score(p=2, name=None):
         n_samples = y.shape[0]
         d = (np.repeat(train_X[:, 0], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 0]) ** p
         d += (np.repeat(train_X[:, 1], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 1]) ** p
-        w = 1 / (d + 1e-300)
+        w = 1 / (d + 1e-14)
         w /= np.sum(w, axis=0)
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -424,7 +424,7 @@ def make_sub_WNN_2d_score(p=2, name=None):
         n_samples = y.shape[0]
         d = np.abs(np.repeat(train_X[:, 0], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 0]) ** p
         d += np.abs(np.repeat(train_X[:, 1], n_samples).reshape((train_X.shape[0], n_samples)) - X[:, 1]) ** p
-        w = 1 / (d + 1e-300)
+        w = 1 / (d + 1e-14)
         w /= np.sum(w, axis=0)
         p_T = 1 / (1 + np.exp(1 - 2 * np.sum(w[train_y], axis=0)))
         entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
@@ -543,21 +543,20 @@ def Hull_2d(X, y):
         return 0, -np.inf
     if nb_isclose(0, S_arr[1], rtol=1e-10, atol=0):
         return 0, -np.inf
-    tot_d = np.inf
+    cross = False
     index = int(EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
     nindex = int(not EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
     for i in range(filled_index[index] - 1):
         for j in range(filled_index[nindex] - 1):
-            cross_x, d = cross_coordinate(EdgeX[index, i], EdgeX[index, i + 1], EdgeX[nindex, j], EdgeX[nindex, j + 1])
-            if not np.isnan(d):
-                if tot_d > d:
-                    tot_d = d
-                    first = cross_x
-                    last_index = i + 1
-        if not np.isinf(tot_d):
-            break
+            TF, cross_x = cross_check(EdgeX[index, i], EdgeX[index, i + 1], EdgeX[nindex, j], EdgeX[nindex, j + 1])
+            if TF:
+                cross = True
+                first = cross_x
+                last_index = i + 1
+                break
+
     S_overlap = 0
-    if np.isinf(tot_d):
+    if not cross:
         small_x1_max = np.max(EdgeX[index, : filled_index[index], 0])
         small_x2_max = np.max(EdgeX[index, : filled_index[index], 1])
         small_x2_min = np.min(EdgeX[index, : filled_index[index], 1])
@@ -572,15 +571,19 @@ def Hull_2d(X, y):
     else:
         cross_count = 0
         Edge_count = 0
-        now = first
-        next = EdgeX[index, last_index]
+        for i in range(filled_index[index] - 1):
+            if np.all(first == EdgeX[index, last_index]):
+                last_index = (last_index + 1) % (filled_index[index] - 1)
+        now, next = first, EdgeX[index, last_index]
+
         cross = False
         for j in range(filled_index[nindex] - 1):
             cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
             if not np.isnan(d):
-                next = cross_x
-                cross = True
-                last_index = (j + 1) % (filled_index[nindex] - 1)
+                if not np.all(first == cross_x):
+                    next = cross_x
+                    cross = True
+                    last_index = (j + 1) % (filled_index[nindex] - 1)
         S_overlap += (next[0] - now[0]) * (next[1] + now[1])
         if cross:
             Edge_count += 1
@@ -590,23 +593,27 @@ def Hull_2d(X, y):
             Edge_count += 1
             last_index = (last_index + 1) % (filled_index[index] - 1)
 
-        while not nb_allclose(first, next, rtol=1e-010, atol=0):
+        while not np.all(first == next):
             now, next = next, EdgeX[index, last_index]
             cross = False
-            for j in range(filled_index[nindex] - 1):
-                cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
-                if not np.isnan(d):
-                    next = cross_x
-                    cross = True
-                    last_index = (j + 1) % (filled_index[nindex] - 1)
-            S_overlap += (next[0] - now[0]) * (next[1] + now[1])
-            if cross:
-                Edge_count += 1
-                cross_count += 1
-                index, nindex = nindex, index
-            else:
+            if np.all(now == next):
                 Edge_count += 1
                 last_index = (last_index + 1) % (filled_index[index] - 1)
+            else:
+                for j in range(filled_index[nindex] - 1):
+                    cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
+                    if not np.isnan(d):
+                        next = cross_x
+                        cross = True
+                        last_index = (j + 1) % (filled_index[nindex] - 1)
+                S_overlap += (next[0] - now[0]) * (next[1] + now[1])
+                if cross:
+                    Edge_count += 1
+                    cross_count += 1
+                    index, nindex = nindex, index
+                else:
+                    Edge_count += 1
+                    last_index = (last_index + 1) % (filled_index[index] - 1)
             if Edge_count > y.shape[0]:
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
@@ -643,6 +650,41 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
 
 
 @njit(error_model="numpy")
+def cross_check(x1, x2, x3, x4):
+    cross_x = np.full((2), np.nan, dtype="float64")
+    if np.all(x1 == x2):
+        return False, cross_x
+    if np.all(x3 == x4):
+        return False, cross_x
+    if np.all(x1 == x4):
+        return False, cross_x
+    if np.all(x2 == x3):
+        return False, cross_x
+    if np.all(x2 == x4):
+        return False, cross_x
+    cross_product = (x2[0] - x1[0]) * (x4[1] - x3[1]) - (x2[1] - x1[1]) * (x4[0] - x3[0])
+    if cross_product > 0:
+        if np.all(x1 == x3):
+            return True, x1
+        if x1[0] == x2[0]:
+            x = x1[0]
+            y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
+        elif x3[0] == x4[0]:
+            x = x3[0]
+            y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
+        else:
+            a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
+            a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
+            x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)
+            y = a1 * (x - x1[0]) + x1[1]
+        if max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x <= min(max(x1[0], x2[0]), max(x3[0], x4[0])):
+            cross_x[0] = x
+            cross_x[1] = y
+            return True, cross_x
+    return False, cross_x
+
+
+@njit(error_model="numpy")
 def cross_coordinate(x1, x2, x3, x4):
     # A=(x2-x1)とB=(x4-x3)の交点
     cross_x = np.full((2), np.nan, dtype="float64")
@@ -650,70 +692,47 @@ def cross_coordinate(x1, x2, x3, x4):
         return cross_x, np.nan
     if np.all(x3 == x4):
         return cross_x, np.nan
-    if np.all(x1 == x3):
-        x3 += 1e-100
     if np.all(x1 == x4):
-        x4 += 1e-100
+        return cross_x, np.nan
     if np.all(x2 == x3):
-        x3 += 1e-100
+        return cross_x, np.nan
     if np.all(x2 == x4):
-        x4 += 1e-100
-    if x1[0] == x2[0]:
-        if x3[0] == x4[0]:
+        return cross_x, np.nan
+    cross_product = (x2[0] - x1[0]) * (x4[1] - x3[1]) - (x2[1] - x1[1]) * (x4[0] - x3[0])
+    if cross_product > 0:
+        return cross_x, np.nan
+    elif cross_product == 0:
+        if x1[0] == x2[0]:
             if x1[0] == x3[0]:
-                is_in_3 = min(x1[1], x2[1]) <= x3[1] <= max(x1[1], x2[1])
-                is_in_4 = min(x1[1], x2[1]) <= x4[1] <= max(x1[1], x2[1])
-                if is_in_3:
-                    cross_x[0] = x1[0]
-                    d3 = np.abs(x3[1] - x1[1])
-                    if is_in_4:
-                        d4 = np.abs(x4[1] - x1[1])
-                        cross_x[1] = x3[1] if d3 < d4 else x4[1]
-                        return cross_x, min(d3, d4)
-                    else:
-                        cross_x[1] = x3[1]
-                        return cross_x, d3
-                elif is_in_4:
-                    cross_x[0] = x1[0]
-                    cross_x[1] = x4[1]
-                    return cross_x, np.abs(x4[1] - x1[1])
-            return cross_x, np.nan
+                if min(x2[1], x1[1]) <= x3[1] < max(x2[1], x1[1]):
+                    return x3, 0
         else:
+            a = (x2[1] - x1[1]) / (x2[0] - x1[0])
+            if x1[1] - a * x1[0] == x3[1] - a * x3[0]:
+                if min(x1[0], x2[0]) <= x3[0] < max(x1[0], x2[0]):
+                    return x3, 0
+        return cross_x, np.nan
+    else:  # 0 > cross_product:
+        if np.all(x1 == x3):
+            return x3, 0
+        if x1[0] == x2[0]:
             x = x1[0]
             y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
-    elif x3[0] == x4[0]:
-        x = x3[0]
-        y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
-    else:
-        a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
-        a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
-        if a1 == a3:
-            if x1[1] - a1 * x1[0] == x3[1] - a3 * x3[0]:
-                is_in_3 = (min(x1[1], x2[1]) <= x3[1]) and (x3[1] <= max(x1[1], x2[1]))
-                is_in_4 = (min(x1[1], x2[1]) <= x4[1]) and (x4[1] <= max(x1[1], x2[1]))
-                if is_in_3:
-                    d3 = np.sqrt((x3[0] - x1[0]) ** 2 + (x3[1] - x1[1]) ** 2)
-                    if is_in_4:
-                        d4 = np.sqrt((x4[0] - x1[0]) ** 2 + (x4[1] - x1[1]) ** 2)
-                        cross_x[:] = x3 if d3 < d4 else x4
-                        return cross_x, min(d3, d4)
-                    else:
-                        cross_x[:] = x3
-                        return cross_x, d3
-                elif is_in_4:
-                    cross_x[:] = x4
-                    return cross_x, np.sqrt((x4[0] - x1[0]) ** 2 + (x4[1] - x1[1]) ** 2)
-            return cross_x, np.nan
+        elif x3[0] == x4[0]:
+            x = x3[0]
+            y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
         else:
+            a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
+            a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
             x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)
             y = a1 * (x - x1[0]) + x1[1]
-    if (max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x) and (x <= min(max(x1[0], x2[0]), max(x3[0], x4[0]))):
-        d = np.sqrt((x - x1[0]) ** 2 + (y - x1[1]) ** 2)
-        cross_x[0] = x
-        cross_x[1] = y
-        return cross_x, d
-    else:
-        return cross_x, np.nan
+        if (max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x) and (x <= min(max(x1[0], x2[0]), max(x3[0], x4[0]))):
+            d = np.sqrt((x - x1[0]) ** 2 + (y - x1[1]) ** 2)
+            cross_x[0] = x
+            cross_x[1] = y
+            return cross_x, d
+        else:
+            return cross_x, np.nan
 
 
 ### make CV_model
