@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from .utils import jit_cov, quartile_deviation, nb_allclose
+from .utils import jit_cov, quartile_deviation, nb_allclose, nb_isclose
 from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
@@ -539,7 +539,10 @@ def Hull_2d(X, y):
         for j in range(filled_index[i] - 1):
             S_arr[i] += (EdgeX[i, j + 1, 0] - EdgeX[i, j, 0]) * (EdgeX[i, j + 1, 1] + EdgeX[i, j, 1])
     S_arr = np.abs(S_arr / 2)
-
+    if nb_isclose(0, S_arr[0], rtol=1e-10, atol=0):
+        return 0, -np.inf
+    if nb_isclose(0, S_arr[1], rtol=1e-10, atol=0):
+        return 0, -np.inf
     tot_d = np.inf
     index = int(EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
     nindex = int(not EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
@@ -564,10 +567,8 @@ def Hull_2d(X, y):
         if (small_x1_max < large_x1_min) or (small_x2_max < large_x2_min) or (large_x2_max < small_x2_min):
             return 1, 0
         else:
-            S_overlap = S_arr[nindex]
-            S = S_overlap / np.min(S_arr)
             score = 1 - (count / (y.shape[0]))
-            return score, -S
+            return score, -1
     else:
         cross_count = 0
         Edge_count = 0
@@ -610,13 +611,10 @@ def Hull_2d(X, y):
                 return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
-        if S >= 1:
-            return 0, -np.inf
         if cross_count / Edge_count > 0.1:
             return 0, -np.inf
         else:
-            n_overlap = Edge_count - cross_count
-            score = 1 - ((count - n_overlap) / (y.shape[0]))
+            score = 1 - (count / (y.shape[0]))
             return score, -S
 
 
@@ -636,7 +634,7 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
         det = bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
         w_0 = (base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]) / det
         w_1 = (-bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]) / det
-        not_is_in[not_is_in] = ((w_0 + w_1) > 1) | (0 > w_0) | (0 > w_1)
+        not_is_in[not_is_in] = ((w_0 + w_1) >= 1) | (0 >= w_0) | (0 >= w_1)
         loop_next = loop_count + 1
         sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
         Edge[n[0] + 1] = next_index
@@ -648,17 +646,17 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
 def cross_coordinate(x1, x2, x3, x4):
     # A=(x2-x1)とB=(x4-x3)の交点
     cross_x = np.full((2), np.nan, dtype="float64")
-    if nb_allclose(x1, x2, rtol=1e-010, atol=0):
+    if np.all(x1 == x2):
         return cross_x, np.nan
-    if nb_allclose(x3, x4, rtol=1e-010, atol=0):
+    if np.all(x3 == x4):
         return cross_x, np.nan
-    if nb_allclose(x1, x3, rtol=1e-010, atol=0):
+    if np.all(x1 == x3):
         x3 += 1e-100
-    if nb_allclose(x1, x4, rtol=1e-010, atol=0):
+    if np.all(x1 == x4):
         x4 += 1e-100
-    if nb_allclose(x2, x3, rtol=1e-010, atol=0):
+    if np.all(x2 == x3):
         x3 += 1e-100
-    if nb_allclose(x2, x4, rtol=1e-010, atol=0):
+    if np.all(x2 == x4):
         x4 += 1e-100
     if x1[0] == x2[0]:
         if x3[0] == x4[0]:
@@ -711,8 +709,6 @@ def cross_coordinate(x1, x2, x3, x4):
             y = a1 * (x - x1[0]) + x1[1]
     if (max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x) and (x <= min(max(x1[0], x2[0]), max(x3[0], x4[0]))):
         d = np.sqrt((x - x1[0]) ** 2 + (y - x1[1]) ** 2)
-        if d < 1e-10:
-            return cross_x, np.nan
         cross_x[0] = x
         cross_x[1] = y
         return cross_x, d
