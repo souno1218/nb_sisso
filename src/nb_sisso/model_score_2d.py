@@ -551,8 +551,8 @@ def Hull_2d(X, y):
     nindex = int(not EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
     for i in range(filled_index[index] - 1):
         for j in range(filled_index[nindex] - 1):
-            cross_x, d = cross_coordinate(EdgeX[nindex, j], EdgeX[nindex, j + 1], EdgeX[index, i], EdgeX[index, i + 1])
-            if not np.isnan(d):
+            cross_x, TF = cross_check(EdgeX[nindex, j], EdgeX[nindex, j + 1], EdgeX[index, i], EdgeX[index, i + 1])
+            if TF:
                 cross = True
                 first = cross_x
                 last_index = i + 1
@@ -573,7 +573,6 @@ def Hull_2d(X, y):
             return score, -1
     else:
         cross_count = 0
-        Edge_count = 0
         for i in range(filled_index[index] - 1):
             if np.all(first == EdgeX[index, last_index]):
                 last_index = (last_index + 1) % (filled_index[index] - 1)
@@ -581,44 +580,43 @@ def Hull_2d(X, y):
 
         cross = False
         for j in range(filled_index[nindex] - 1):
-            cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
-            if not np.isnan(d):
+            cross_x, TF = cross_check(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
+            if TF:
                 if not np.all(first == cross_x):
                     next = cross_x
                     cross = True
                     last_index = (j + 1) % (filled_index[nindex] - 1)
         S_overlap += (next[0] - now[0]) * (next[1] + now[1])
         if cross:
-            Edge_count += 1
             cross_count += 1
             index, nindex = nindex, index
         else:
-            Edge_count += 1
             last_index = (last_index + 1) % (filled_index[index] - 1)
 
-        while not nb_allclose(first, next, rtol=1e-012, atol=0):
+        Edge_count = y.shape[0] + 1
+        for i in range(2, y.shape[0] + 1):
             now, next = next, EdgeX[index, last_index]
             cross = False
             if np.all(now == next):
-                Edge_count += 1
                 last_index = (last_index + 1) % (filled_index[index] - 1)
             else:
                 for j in range(filled_index[nindex] - 1):
-                    cross_x, d = cross_coordinate(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
-                    if not np.isnan(d):
+                    cross_x, TF = cross_check(now, next, EdgeX[nindex, j], EdgeX[nindex, j + 1])
+                    if TF:
                         next = cross_x
                         cross = True
                         last_index = (j + 1) % (filled_index[nindex] - 1)
                 S_overlap += (next[0] - now[0]) * (next[1] + now[1])
                 if cross:
-                    Edge_count += 1
                     cross_count += 1
                     index, nindex = nindex, index
                 else:
-                    Edge_count += 1
                     last_index = (last_index + 1) % (filled_index[index] - 1)
-            if Edge_count > y.shape[0]:
-                return 0, -np.inf
+            if nb_allclose(first, next, rtol=1e-08, atol=0):
+                Edge_count = i + 1
+                break
+        else:
+            return 0, -np.inf
         S_overlap = np.abs(S_overlap / 2)
         S = S_overlap / np.min(S_arr)
         if cross_count / Edge_count > 0.1:
@@ -653,36 +651,47 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
 
 
 @njit(error_model="numpy")
-def cross_coordinate(x1, x2, x3, x4):
+def cross_check(x1, x2, x3, x4):
     # A=(x2-x1)とB=(x4-x3)の交点
-    cross_x = np.full((2), np.nan, dtype="float64")
+    cross_x = np.empty((2), dtype="float64")
+
+    if max(x1[0], x2[0]) < min(x3[0], x4[0]):
+        return cross_x, False
+    elif max(x3[0], x4[0]) < min(x1[0], x2[0]):
+        return cross_x, False
+    elif max(x1[1], x2[1]) < min(x3[1], x4[1]):
+        return cross_x, False
+    elif max(x3[1], x4[1]) < min(x1[1], x2[1]):
+        return cross_x, False
+
     if np.all(x1 == x2):
-        return cross_x, np.nan
-    if np.all(x3 == x4):
-        return cross_x, np.nan
-    if np.all(x1 == x4):
-        return cross_x, np.nan
-    if np.all(x2 == x3):
-        return cross_x, np.nan
-    if np.all(x2 == x4):
-        return cross_x, np.nan
+        return cross_x, False
+    elif np.all(x3 == x4):
+        return cross_x, False
+    elif np.all(x1 == x4):
+        return cross_x, False
+    elif np.all(x2 == x3):
+        return cross_x, False
+    elif np.all(x2 == x4):
+        return cross_x, False
+
     cross_product = (x2[0] - x1[0]) * (x4[1] - x3[1]) - (x2[1] - x1[1]) * (x4[0] - x3[0])
     if cross_product > 0:
-        return cross_x, np.nan
+        return cross_x, False
     elif cross_product == 0:
         if x1[0] == x2[0]:
             if x1[0] == x3[0]:
                 if min(x2[1], x1[1]) <= x3[1] < max(x2[1], x1[1]):
-                    return x3, 0
+                    return x3, True
         else:
             a = (x2[1] - x1[1]) / (x2[0] - x1[0])
             if x1[1] - a * x1[0] == x3[1] - a * x3[0]:
                 if min(x1[0], x2[0]) <= x3[0] < max(x1[0], x2[0]):
-                    return x3, 0
-        return cross_x, np.nan
+                    return x3, True
+        return cross_x, False
     else:  # 0 > cross_product:
         if np.all(x1 == x3):
-            return x3, 0
+            return x3, True
         if x1[0] == x2[0]:
             x = x1[0]
             y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
@@ -695,12 +704,11 @@ def cross_coordinate(x1, x2, x3, x4):
             x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)
             y = a1 * (x - x1[0]) + x1[1]
         if (max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x) and (x <= min(max(x1[0], x2[0]), max(x3[0], x4[0]))):
-            d = np.sqrt((x - x1[0]) ** 2 + (y - x1[1]) ** 2)
             cross_x[0] = x
             cross_x[1] = y
-            return cross_x, d
+            return cross_x, True
         else:
-            return cross_x, np.nan
+            return cross_x, False
 
 
 ### make CV_model
