@@ -488,6 +488,8 @@ def Hull_2d(X, y):
     classT_X, classF_X = normalized_X[y], normalized_X[~y]
     EdgeX = np.full((2, 2 * max(np.sum(y), np.sum(~y)) + 1, 2), np.nan, dtype="float64")
     filled_index = np.zeros(2, dtype="int64")
+
+    # Edge_T
     index_x_max = np.argmax(classT_X[:, 0])
     index_x_min = np.argmin(classT_X[:, 0])
     arange = np.arange(classT_X.shape[0])
@@ -508,9 +510,9 @@ def Hull_2d(X, y):
     Edge_T[n[0] + 1] = index_x_min
     EdgeX[0, : n[0] + 2] = classT_X[Edge_T[: n[0] + 2]]
     filled_index[0] = n[0] + 2
-
     count = np.sum(~not_is_in)
 
+    # Edge_F
     index_x_max = np.argmax(classF_X[:, 0])
     index_x_min = np.argmin(classF_X[:, 0])
     arange = np.arange(classF_X.shape[0])
@@ -534,6 +536,7 @@ def Hull_2d(X, y):
     EdgeX = EdgeX[:, : np.max(filled_index)].copy()
     count += np.sum(~not_is_in)
 
+    # overlap
     S_arr = np.zeros(2, dtype="float64")
     for i in [0, 1]:
         for j in range(filled_index[i] - 1):
@@ -548,8 +551,8 @@ def Hull_2d(X, y):
     nindex = int(not EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
     for i in range(filled_index[index] - 1):
         for j in range(filled_index[nindex] - 1):
-            TF, cross_x = cross_check(EdgeX[index, i], EdgeX[index, i + 1], EdgeX[nindex, j], EdgeX[nindex, j + 1])
-            if TF:
+            cross_x, d = cross_coordinate(EdgeX[nindex, j], EdgeX[nindex, j + 1], EdgeX[index, i], EdgeX[index, i + 1])
+            if not np.isnan(d):
                 cross = True
                 first = cross_x
                 last_index = i + 1
@@ -593,7 +596,7 @@ def Hull_2d(X, y):
             Edge_count += 1
             last_index = (last_index + 1) % (filled_index[index] - 1)
 
-        while not np.all(first == next):
+        while not nb_allclose(first, next, rtol=1e-012, atol=0):
             now, next = next, EdgeX[index, last_index]
             cross = False
             if np.all(now == next):
@@ -647,41 +650,6 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
         Edge[n[0] + 1] = next_index
         n[0] += 1
         sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
-
-
-@njit(error_model="numpy")
-def cross_check(x1, x2, x3, x4):
-    cross_x = np.full((2), np.nan, dtype="float64")
-    if np.all(x1 == x2):
-        return False, cross_x
-    if np.all(x3 == x4):
-        return False, cross_x
-    if np.all(x1 == x4):
-        return False, cross_x
-    if np.all(x2 == x3):
-        return False, cross_x
-    if np.all(x2 == x4):
-        return False, cross_x
-    cross_product = (x2[0] - x1[0]) * (x4[1] - x3[1]) - (x2[1] - x1[1]) * (x4[0] - x3[0])
-    if cross_product > 0:
-        if np.all(x1 == x3):
-            return True, x1
-        if x1[0] == x2[0]:
-            x = x1[0]
-            y = (x4[1] - x3[1]) / (x4[0] - x3[0]) * (x1[0] - x3[0]) + x3[1]
-        elif x3[0] == x4[0]:
-            x = x3[0]
-            y = (x2[1] - x1[1]) / (x2[0] - x1[0]) * (x3[0] - x1[0]) + x1[1]
-        else:
-            a1 = (x2[1] - x1[1]) / (x2[0] - x1[0])
-            a3 = (x4[1] - x3[1]) / (x4[0] - x3[0])
-            x = (a1 * x1[0] - x1[1] - a3 * x3[0] + x3[1]) / (a1 - a3)
-            y = a1 * (x - x1[0]) + x1[1]
-        if max(min(x1[0], x2[0]), min(x3[0], x4[0])) <= x <= min(max(x1[0], x2[0]), max(x3[0], x4[0])):
-            cross_x[0] = x
-            cross_x[1] = y
-            return True, cross_x
-    return False, cross_x
 
 
 @njit(error_model="numpy")
