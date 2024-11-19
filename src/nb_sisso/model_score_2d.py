@@ -569,8 +569,9 @@ def Hull_2d(X, y):
         if (small_x1_max < large_x1_min) or (small_x2_max < large_x2_min) or (large_x2_max < small_x2_min):
             return 1, 0
         else:
-            score = 1 - (count / (y.shape[0]))
-            return score, -1
+            # score = 1 - (count / (y.shape[0]))
+            # return score, -1
+            return 0, -1  # option
     else:
         cross_count = 0
         for i in range(filled_index[index] - 1):
