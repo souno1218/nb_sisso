@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 from numba import njit
+from .utils import quartile_deviation
 
 # If error_model is available for jitclass, replace all of them with class
 
@@ -367,11 +368,22 @@ def Hull_1d(x, y):
 def sub_Hull_1d_fit(x, y):
     min_T, max_T = np.min(x[y]), np.max(x[y])
     min_F, max_F = np.min(x[~y]), np.max(x[~y])
-    return min_T, max_T, min_F, max_F
+    return (
+        min_T,
+        max_T,
+        min_F,
+        max_F,
+    )
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
 def sub_Hull_1d_score(x, y, min_T, max_T, min_F, max_F):
+    # filter
+    x_minus_mean = x - np.mean(x)
+    std = np.sqrt(np.mean(x_minus_mean**2))
+    quartile_deviation(x)
+    if std / quartile_deviation(x) > 1e2:
+        return 0, -np.inf
     TF = np.empty(x.shape[0], dtype="bool")
     TF[y] = min_F > x[y]
     TF[y] |= x[y] > max_F

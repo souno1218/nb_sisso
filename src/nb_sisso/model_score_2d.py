@@ -69,9 +69,8 @@ def sub_QDA_2d_fit(X, y):
     classF_var_1, classF_var_2, classF_cov = jit_cov(classF_X)
     det_covF = classF_var_1 * classF_var_2 - classF_cov**2 + 1e-14
 
-    mean_T, mean_F = np.mean(classT_X, axis=0), np.mean(classF_X, axis=0)
-    # mean_T = np.array([np.mean(classT_X[:, 0]), np.mean(classT_X[:, 1])])
-    # mean_F = np.array([np.mean(classF_X[:, 0]), np.mean(classF_X[:, 1])])
+    mean_T = np.array([np.mean(classT_X[:, 0]), np.mean(classT_X[:, 1])])
+    mean_F = np.array([np.mean(classF_X[:, 0]), np.mean(classF_X[:, 1])])
     return (
         pi_T,
         pi_F,
