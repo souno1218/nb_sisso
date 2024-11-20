@@ -29,6 +29,8 @@ def SIS(
     operators_to_use=["+", "-", "*", "/"],
     num_threads=None,
     fast=False,
+    fmax_max=1e15,
+    fmax_min=1e-15,
     verbose=True,
     is_progress=False,
     log_interval=10,
@@ -84,6 +86,12 @@ def SIS(
         When computing wiHowever, it would be in vain because in many cases good results are not concentrated in one core.
         However, it would be in vain because in many cases good results are not concentrated in one core.
         Eliminate wasteful preservation to the extent that it is safe to do so 99.99999% of the time.
+    fmax_min : bool, optional
+        The threshold that if the maximal absolute value of the data in a feature is smaller than fmax_min,
+        it means the magnitudes of all numbers in the feature are so small that the feature will be treated as zero-feature and be discarded.
+    fmax_max : bool, optional
+        The threshold that if the maximal absolute value of the data in a feature is greater than fmax_max,
+        it means the magnitudes of certain numbers in the feature are so large that the feature will be treated as infinity-feature and be discarded.
     verbose : bool, optional
         Print log or, by default True.
         This will be ignored if logger is set.
@@ -273,6 +281,8 @@ def SIS(
                         y,
                         model_score,
                         how_many_to_save,
+                        fmax_max,
+                        fmax_min,
                         n_op,
                         n_op1,
                         use_binary_op,
@@ -294,6 +304,8 @@ def SIS(
                         y,
                         model_score,
                         how_many_to_save,
+                        fmax_max,
+                        fmax_min,
                         n_op,
                         n_op1,
                         use_binary_op,
@@ -320,6 +332,8 @@ def SIS(
                         y,
                         model_score,
                         how_many_to_save,
+                        fmax_max,
+                        fmax_min,
                         n_op,
                         use_unary_op,
                         save_score_list,
@@ -340,6 +354,8 @@ def SIS(
                         y,
                         model_score,
                         how_many_to_save,
+                        fmax_max,
+                        fmax_min,
                         n_op,
                         use_unary_op,
                         save_score_list,
@@ -369,18 +385,19 @@ def compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, m
     border_list = np.full((num_threads, 2), np.finfo(np.float64).min, dtype="float64")
     save = (save_score_list, save_eq_list, min_index_list, border_list)
     used = sub_loop_non_op(x, y, units, is_use_1, model_score, *save)
+    fmax_max, fmax_min = 1e15, 1e-15
     if is_progress:
         with ProgressBar(total=0, leave=False, disable=True) as progress:
-            sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
+            sub_loop_binary_op(x, y, model_score, 1, fmax_max, fmax_min, 1, 0, use_binary_op, *save, *used, progress)
         if len(use_unary_op) != 0:
             with ProgressBar(total=0, leave=False, disable=True) as progress:
-                sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
+                sub_loop_unary_op(x, y, model_score, 1, fmax_max, fmax_min, 1, use_unary_op, *save, *used, progress)
     else:
         with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
-            sub_loop_binary_op(x, y, model_score, 1, 1, 0, use_binary_op, *save, *used, progress)
+            sub_loop_binary_op(x, y, model_score, 1, fmax_max, fmax_min, 1, 0, use_binary_op, *save, *used, progress)
         if len(use_unary_op) != 0:
             with loop_log(logger, interval=10000, tot_loop=0, header="") as progress:
-                sub_loop_unary_op(x, y, model_score, 1, 1, use_unary_op, *save, *used, progress)
+                sub_loop_unary_op(x, y, model_score, 1, fmax_max, fmax_min, 1, use_unary_op, *save, *used, progress)
 
 
 @njit(error_model="numpy")
@@ -526,7 +543,7 @@ def sub_loop_non_op(
         used_shape_id_arr[last_index] = 0
         used_info_arr[last_index, 0] = i
         last_index += 1
-        if np.logical_not(np.isnan(score1)):
+        if not np.isnan(score1):
             if score1 > border1:
                 save_score_list[0, min_index_list[0], 0] = score1
                 save_score_list[0, min_index_list[0], 1] = score2
@@ -568,6 +585,8 @@ def sub_loop_binary_op(
     y,
     model_score,
     how_many_to_save,
+    fmax_max,
+    fmax_min,
     n_op,
     n_op1,
     use_binary_op,
@@ -665,8 +684,8 @@ def sub_loop_binary_op(
                                 equation[len_eq1 : len_eq1 + len_eq2] = eq2[:len_eq2]
                                 equation[len_eq1 + len_eq2] = merge_op
                                 equation[len_eq1 + len_eq2 + 1 :] = Nan_number
-                                ans_num = calc_RPN(x, equation)
-                                if np.logical_not(np.isnan(ans_num[0])):
+                                ans_num = calc_RPN(x, equation, fmax_max, fmax_min)
+                                if not np.isnan(ans_num[0]):
                                     if max_n_op != n_op:
                                         match merge_op:
                                             case -1:  # +
@@ -783,6 +802,8 @@ def sub_loop_unary_op(
     y,
     model_score,
     how_many_to_save,
+    fmax_max,
+    fmax_min,
     n_op,
     use_unary_op,
     save_score_list,
@@ -902,7 +923,7 @@ def sub_loop_unary_op(
                                 # unit=base_unit#units更新????
                     if checked:
                         equation[len_base_eq] = op
-                        ans_num = calc_RPN(x, equation)
+                        ans_num = calc_RPN(x, equation, fmax_max, fmax_min)
                         if not np.isnan(ans_num[0]):
                             if max_n_op != n_op:
                                 used_unit_arr_thread[thread_id, last_index] = unit

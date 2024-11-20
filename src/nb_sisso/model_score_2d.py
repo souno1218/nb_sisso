@@ -592,8 +592,6 @@ def Hull_2d(X, y):
             index, nindex = nindex, index
         else:
             last_index = (last_index + 1) % (filled_index[index] - 1)
-
-        # Edge_count = y.shape[0] + 1
         for i in range(2, y.shape[0] + 1):
             now, next = next, EdgeX[index, last_index]
             cross = False
@@ -613,7 +611,6 @@ def Hull_2d(X, y):
                 else:
                     last_index = (last_index + 1) % (filled_index[index] - 1)
             if nb_allclose(first, next, rtol=1e-08, atol=0):
-                # Edge_count = i + 1
                 break
         else:
             return 0, -np.inf
@@ -644,7 +641,7 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
         det = bec_xy[next_point, 0] * base_vec[1] - base_vec[0] * bec_xy[next_point, 1]
         w_0 = (base_vec[1] * use_other_X[:, 0] - base_vec[0] * use_other_X[:, 1]) / det
         w_1 = (-bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]) / det
-        not_is_in[not_is_in] = ((w_0 + w_1) >= 1) | (0 >= w_0) | (0 >= w_1)
+        not_is_in[not_is_in] = ((w_0 + w_1) > 1) | (0 > w_0) | (0 > w_1)
         loop_next = loop_count + 1
         sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
         Edge[n[0] + 1] = next_index

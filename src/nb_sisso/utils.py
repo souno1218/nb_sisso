@@ -130,8 +130,8 @@ def argmin_and_min(arr):
     return min_num1, min_num2, min_index
 
 
-@njit(error_model="numpy")  # ,fastmath=True)
-def calc_RPN(x, equation):
+@njit(error_model="numpy")
+def calc_RPN(x, equation, fmax_max=1e15, fmax_min=1e-15):
     # Nan_number=-100
     stack = np.full((np.sum(equation >= 0), x.shape[1]), np.nan, dtype="float64")
     last_stack_index = -1
@@ -203,13 +203,16 @@ def calc_RPN(x, equation):
                     stack[last_stack_index] = np.sin(stack[last_stack_index])  # よくわからないため未実装
                 case -100:  # END
                     break  # None
-    if np.any(np.isinf(stack[last_stack_index])):  # 演算子の意味があるか
+    max_, min_ = np.max(stack[last_stack_index]), np.min(stack[last_stack_index])
+    if np.abs(max_) > fmax_max:
+        stack[0, 0] = np.nan
+    elif np.abs(min_) > fmax_max:
         stack[0, 0] = np.nan
     elif np.any(np.isnan(stack[last_stack_index])):
         stack[0, 0] = np.nan
-    elif is_zero(stack[last_stack_index]):
+    elif is_zero(stack[last_stack_index], rtol=fmax_min):
         stack[0, 0] = np.nan
-    elif is_one(stack[last_stack_index]):
+    elif is_one(stack[last_stack_index], rtol=fmax_min):
         stack[0, 0] = np.nan
     # if is_const(stack[0]):
     # stack[0,0]=np.nan
@@ -217,24 +220,21 @@ def calc_RPN(x, equation):
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def is_zero(num):
-    rtol = 1e-010
+def is_zero(num, rtol=1e-010):
     return np.all(np.abs(num) <= rtol)
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def is_one(num):
-    rtol = 1e-010
+def is_one(num, rtol=1e-010):
     if (np.abs(num[0]) - 1) <= rtol:
-        if is_const(num):
+        if is_const(num, rtol=1e-010):
             return True
     return False
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def is_const(num):
-    rtol = 1e-010
-    return (np.max(num) - np.min(num)) / np.abs(np.mean(num)) <= rtol
+def is_const(num, rtol=1e-010):
+    return (np.max(num) - np.min(num)) <= rtol * np.abs(np.mean(num))
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
