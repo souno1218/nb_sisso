@@ -1,8 +1,6 @@
 import numpy as np
 from numba import njit, prange, objmode
 
-int_nan = -100
-
 
 @njit(error_model="numpy")
 def cache_load(max_ops):
@@ -68,6 +66,7 @@ def make_eq(base_back_equation, change_x_pattern):
 
 @njit(error_model="numpy")
 def nb_calc_RPN(x, equation):
+    int_nan = -100
     stack = np.full((np.sum(equation >= 0), x.shape[1]), int_nan, dtype="float64")
     stack[0] = x[equation[0]]
     last_stack_index = 0
@@ -140,6 +139,7 @@ def isclose_arr(arr1, arr2, rtol=1e-06, atol=0):
 
 @njit(error_model="numpy")
 def arg_close_arr(arr, mat, rtol=1e-06, atol=0):
+    int_nan = -100
     for i in range(mat.shape[0]):
         if isclose_arr(arr, mat[i], rtol=rtol, atol=atol):
             return i
@@ -147,7 +147,7 @@ def arg_close_arr(arr, mat, rtol=1e-06, atol=0):
 
 
 @njit(error_model="numpy")
-def arg_close_arr(num, arr, rtol=1e-06, atol=0):
+def indexes_close_arr(num, arr, rtol=1e-06, atol=0):
     return np.arange(arr.shape[0])[isclose(num, arr, rtol=rtol, atol=atol)]
 
 
@@ -189,6 +189,7 @@ def make_dict_mask_x(eq_x_max):
 """
 @njit(parallel=True, error_model="numpy")
 def make_before_similar_num_list(num_threads, max_op, random_x, before_equations, progress_proxy):
+    int_nan = -100
     dict_mask_x = make_dict_mask_x(max_op)
     loop_per_threads = before_equations.shape[0] // num_threads + 1
     save_similar_num_list = np.full(
@@ -229,6 +230,7 @@ def make_before_similar_num_list(num_threads, max_op, random_x, before_equations
 
 @njit(parallel=True, error_model="numpy")
 def make_before_similar_num_list(num_threads, max_op, random_x, before_equations, progress_proxy):
+    int_nan = -100
     dict_mask_x = make_dict_mask_x(max_op)
     shape = (2, before_equations.shape[0], random_x.shape[1])
     similar_num_list = np.full(shape, int_nan, dtype="float64")

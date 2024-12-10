@@ -203,7 +203,7 @@ def make_unique_equations(
         for n_op1 in range(max_op - 1, -1, -1):
             n_op2 = max_op - 1 - n_op1
             logger.info(f"   n_op1={n_op1},n_op2={n_op2}")
-            how_loop, loop_per_threads = loop_count(max_op, n_op1, num_threads, is_print=is_print)
+            how_loop, loop_per_threads = loop_count(max_op, n_op1, num_threads)
             logger.info(f"      make_unique_equations_thread")
             mem_size_per_1data = 2 * random_x.shape[1] * 8 + 8 + 1 + 1
             mem_size = ((mem_size_per_1data * loop_per_threads * num_threads) // 100000) / 10
@@ -299,7 +299,7 @@ def make_unique_equations(
         for n_op1 in range(max_op - 1, -1, -1):
             n_op2 = max_op - 1 - n_op1
             logger.info(f"   n_op1={n_op1},n_op2={n_op2}")
-            how_loop, loop_per_threads = loop_count(max_op, n_op1, num_threads, is_print=is_print)
+            how_loop, loop_per_threads = loop_count(max_op, n_op1, num_threads)
             logger.info(f"      make_unique_equations_thread")
             if os.path.isfile(f"saved_7_make_unique_equations_thread_{n_op1}_{num_threads}.npz"):
                 TF_list = np.load(f"saved_7_make_unique_equations_thread_{n_op1}_{num_threads}.npz")["TF_list"]
@@ -499,7 +499,7 @@ def make_unique_equations_thread(
                         normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
                         min_index = np.argmin(cache_for_mask_x[:n, 1, 0])
                         if max_op + 1 != eq_x_max:
-                            same_head_index = arg_close_arr(
+                            same_head_index = indexes_close_arr(
                                 cache_for_mask_x[normalized_min_index, 0, 0],
                                 head_before_similar_num_list,
                             )
@@ -516,7 +516,7 @@ def make_unique_equations_thread(
                                         is_save = False
                                         break
                     if is_save:
-                        same_head_index = arg_close_arr(
+                        same_head_index = indexes_close_arr(
                             cache_for_mask_x[normalized_min_index, 0, 0],
                             head_saved_similar_num_list,
                         )
@@ -533,7 +533,7 @@ def make_unique_equations_thread(
                                     is_save = False
                                     break
                     if is_save:
-                        same_head_index = arg_close_arr(
+                        same_head_index = indexes_close_arr(
                             cache_for_mask_x[normalized_min_index, 0, 0],
                             head_save_similar_num_list[thread_id, :counter],
                         )
@@ -587,7 +587,7 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
         for thread_id in prange(num_threads):
             true_index_thread = true_index[thread_id::num_threads].copy()
             for i in true_index_thread:
-                for t in arg_close_arr(
+                for t in indexes_close_arr(
                     similar_num_list[target_index, 0, i, 0],
                     head_return_similar_num_list[:last_index],
                 ):
@@ -790,7 +790,7 @@ def make_unique_equations_thread_7(
                     if is_save:
                         normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
                         if max_op + 1 != eq_x_max:
-                            same_head_index = arg_close_arr(
+                            same_head_index = indexes_close_arr(
                                 cache_for_mask_x[normalized_min_index, 0, 0],
                                 head_before_similar_num_list,
                             )
@@ -802,7 +802,7 @@ def make_unique_equations_thread_7(
                                     is_save = False
                                     break
                     if is_save:
-                        same_head_index = arg_close_arr(
+                        same_head_index = indexes_close_arr(
                             cache_for_mask_x[normalized_min_index, 0, 0],
                             head_saved_similar_num_list,
                         )
@@ -814,7 +814,7 @@ def make_unique_equations_thread_7(
                                 is_save = False
                                 break
                     if is_save:
-                        same_head_index = arg_close_arr(
+                        same_head_index = indexes_close_arr(
                             cache_for_mask_x[normalized_min_index, 0, 0],
                             head_save_similar_num_list[thread_id, :counter],
                         )
@@ -856,7 +856,7 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
         for thread_id in prange(num_threads):
             true_index_thread = true_index[thread_id::num_threads].copy()
             for i in true_index_thread:
-                for t in arg_close_arr(
+                for t in indexes_close_arr(
                     similar_num_list[target_index, i, 0],
                     head_return_similar_num_list[:last_index],
                 ):
