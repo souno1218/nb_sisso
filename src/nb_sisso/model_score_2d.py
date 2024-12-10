@@ -643,10 +643,29 @@ def sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_count, base_index_front
         w_1 = (-bec_xy[next_point, 1] * use_other_X[:, 0] + bec_xy[next_point, 0] * use_other_X[:, 1]) / det
         not_is_in[not_is_in] = ((w_0 + w_1) > 1) | (0 > w_0) | (0 > w_1)
         loop_next = loop_count + 1
-        sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
+        last = sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, next_index, base_index_back, mask, Edge, n)
+        x1, y1 = base_X[base_index_back, 0], base_X[base_index_back, 1]
+        x2, y2 = base_X[next_index, 0], base_X[next_index, 1]
+        x3, y3 = base_X[base_index_front, 0], base_X[base_index_front, 1]
+        # p = (y3 - y2) * (x2**2 - x1**2 + y2**2 - y1**2) + (y1 - y2) * (x3**2 - x2**2 + y3**2 - y2**2)
+        # p /= 2 * ((x2 - x1) * (y3 - y2) - (x2 - x3) * (y1 - x2))
+        # q = (x2 - x1) * (x3**2 - x2**2 + x3**2 - x2**2) + (x2 - x3) * (x2**2 - x1**2 + y2**2 - y1**2)
+        # q /= 2 * ((y3 - y2) * (x2 - x1) - (y1 - y2) * (x2 - x3))
+        # r_2 = (x1 - p) ** 2 + (y1 - q) ** 2
+        # if last:
+        # TF = (((x2 - x1) * (other_X[not_is_in, 1] - y1)) - ((y2 - y1) * (other_X[not_is_in, 0] - x1))) < 0
+        # TF |= ((other_X[not_is_in, 0] - p) ** 2 + (other_X[not_is_in, 1] - q) ** 2) > r_2
+        # not_is_in[not_is_in] = TF
         Edge[n[0] + 1] = next_index
         n[0] += 1
-        sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
+        last = sub_Hull_2d(base_X, other_X, not_is_in, arange, loop_next, base_index_front, next_index, mask, Edge, n)
+        # if last:
+        # TF = (((x3 - x2) * (other_X[not_is_in, 1] - y2)) - ((y3 - y2) * (other_X[not_is_in, 0] - x2))) < 0
+        # TF |= ((other_X[not_is_in, 0] - p) ** 2 + (other_X[not_is_in, 1] - q) ** 2) > r_2
+        # not_is_in[not_is_in] = TF
+        return False
+    else:
+        return True
 
 
 @njit(error_model="numpy")
