@@ -1,15 +1,12 @@
 import numpy as np
-import pandas as pd
-import sys
-import os, psutil, logging, datetime
-from numba_progress import ProgressBar
+import numba, os, datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode, get_num_threads
-from numba_progress.numba_atomic import atomic_add, atomic_xchg, atomic_min
 
 from .utils_for_make_cache import *
+from .log_progress import loop_log
 
 
-def main(max_op, num_threads, len_x=5, ProgressBar_disable=False, verbose=True, logger=None):
+def main(max_op, num_threads, len_x=5, log_interval=300, verbose=True, logger=None):
     int_nan = -100
     # logger
     if logger is None:
@@ -25,13 +22,29 @@ def main(max_op, num_threads, len_x=5, ProgressBar_disable=False, verbose=True, 
             _format = "%(asctime)s %(name)s [%(levelname)s] : %(message)s"
             st_handler.setFormatter(logging.Formatter(_format))
             logger.addHandler(st_handler)
+
     set_num_threads(num_threads)
     if not thread_check(num_threads):
         logger.info(f"can't set thread : {num_threads}")
 
+    # num_threads
+    if num_threads is None:
+        num_threads = multiprocessing.cpu_count()
+
+    set_num_threads(num_threads)
+    if not thread_check(num_threads):
+        logger.info(f"can't set thread : {num_threads}")
+
+    # log
+    logger.info(f"numba={numba.__version__}, numpy={np.__version__}")
+    logger.info(f"OPT={numba.config.OPT}, THREADING_LAYER={numba.config.THREADING_LAYER}")
+    logger.info(
+        f"USING_SVML={numba.config.USING_SVML}, ENABLE_AVX={numba.config.ENABLE_AVX}, DISABLE_JIT={numba.config.DISABLE_JIT}"
+    )
     time0 = datetime.datetime.now()
     logger.info(f"max_op = {max_op}  ,  date : {time0}")
     logger.info(f"use cores : {get_num_threads()}")
+
     # np.random.seed(100)
     logger.info("making random_x")
     save_random_x = np.random.uniform(0.3, 10, (max_op + 2, len_x))
@@ -66,15 +79,9 @@ def main(max_op, num_threads, len_x=5, ProgressBar_disable=False, verbose=True, 
     logger.info(
         f"   Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={loop})"
     )
-    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
     time1, time2 = datetime.datetime.now(), datetime.datetime.now()
-    with ProgressBar(
-        total=loop,
-        dynamic_ncols=False,
-        disable=ProgressBar_disable,
-        bar_format=bar_format,
-        leave=False,
-    ) as progress:
+    header = "      "
+    with loop_log(logger, interval=log_interval, tot_loop=loop, header=header) as progress:
         before_similar_num_list = make_before_similar_num_list(
             num_threads, max_op, random_x, before_equations, progress
         )
@@ -84,14 +91,7 @@ def main(max_op, num_threads, len_x=5, ProgressBar_disable=False, verbose=True, 
     logger.info(f"make_unique_equations")
     time1, time2 = time2, datetime.datetime.now()
     equations, need_calc, base_eq_id, similar_num = make_unique_equations(
-        max_op,
-        num_threads,
-        random_x,
-        before_similar_num_list,
-        logger,
-        bar_format,
-        True,
-        ProgressBar_disable,
+        max_op, num_threads, random_x, before_similar_num_list, log_interval, logger
     )
     time1, time2 = time2, datetime.datetime.now()
     dTime = time2 - time1
@@ -180,16 +180,7 @@ def make_final_cache(
     np.save(f"operator_{max_ops}", equation_list)
 
 
-def make_unique_equations(
-    max_op,
-    num_threads,
-    random_x,
-    before_similar_num_list,
-    logger,
-    bar_format,
-    is_print,
-    ProgressBar_disable,
-):
+def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list, log_interval, logger):
     num_threads = int(num_threads)
     int_nan = -100
     saved_equation_list = np.empty((0, 2 * max_op + 1), dtype="int8")
@@ -211,13 +202,8 @@ def make_unique_equations(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={how_loop})"
             )
             time1, time2 = time2, datetime.datetime.now()
-            with ProgressBar(
-                total=how_loop,
-                dynamic_ncols=False,
-                disable=ProgressBar_disable,
-                bar_format=bar_format,
-                leave=False,
-            ) as progress:
+            header = "         "
+            with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                 TF_list, similar_num_list, need_calc_list = make_unique_equations_thread(
                     max_op,
                     n_op1,
@@ -230,7 +216,7 @@ def make_unique_equations(
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
             logger.info(f"      dim_reduction")
-            how_loop = np.sum(np.sort(np.sum(TF_list, axis=1))[::-1][1:])
+            how_loop = int(np.sum(np.sort(np.sum(TF_list, axis=1))[::-1][1:]))
             mem_size_per_1data = 2 * random_x.shape[1] * 8 + 8
             mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
             loop = np.sum(TF_list)
@@ -238,31 +224,21 @@ def make_unique_equations(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={loop})"
             )
             time1, time2 = time2, datetime.datetime.now()
-            with ProgressBar(
-                total=how_loop,
-                dynamic_ncols=False,
-                disable=ProgressBar_disable,
-                bar_format=bar_format,
-                leave=False,
-            ) as progress:
+            header = "         "
+            with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                 TF_list, need_calc_list = dim_reduction(TF_list, similar_num_list, need_calc_list, progress)
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
             logger.info(f"      make_unique_equations_info")
-            how_loop = np.sum(TF_list)
+            how_loop = int(np.sum(TF_list))
             mem_size_per_1data = 2 * random_x.shape[1] * 8 + (2 * max_op + 1) + 5 * 8 + 1 + tot_mask_x.shape[0]
             mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
             logger.info(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={how_loop})"
             )
             time1, time2 = time2, datetime.datetime.now()
-            with ProgressBar(
-                total=how_loop,
-                dynamic_ncols=False,
-                disable=ProgressBar_disable,
-                bar_format=bar_format,
-                leave=False,
-            ) as progress:
+            header = "         "
+            with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                 (
                     equation_list,
                     similar_num_list,
@@ -303,15 +279,10 @@ def make_unique_equations(
             logger.info(f"      make_unique_equations_thread")
             if os.path.isfile(f"saved_7_make_unique_equations_thread_{n_op1}_{num_threads}.npz"):
                 TF_list = np.load(f"saved_7_make_unique_equations_thread_{n_op1}_{num_threads}.npz")["TF_list"]
-                how_loop = np.sum(TF_list)
+                how_loop = int(np.sum(TF_list))
                 logger.info(f"         make_similar_num_by_saved_7")
-                with ProgressBar(
-                    total=how_loop,
-                    dynamic_ncols=False,
-                    disable=ProgressBar_disable,
-                    bar_format=bar_format,
-                    leave=False,
-                ) as progress:
+                header = "         "
+                with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                     similar_num_list = make_similar_num_by_saved_7(n_op1, TF_list, random_x, progress)
             else:
                 mem_size_per_1data = random_x.shape[1] * 8 + 8 + 1 + 1
@@ -320,13 +291,8 @@ def make_unique_equations(
                     f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={how_loop})"
                 )
                 time1, time2 = time2, datetime.datetime.now()
-                with ProgressBar(
-                    total=how_loop,
-                    dynamic_ncols=False,
-                    disable=ProgressBar_disable,
-                    bar_format=bar_format,
-                    leave=False,
-                ) as progress:
+                header = "         "
+                with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                     TF_list, similar_num_list = make_unique_equations_thread_7(
                         n_op1,
                         num_threads,
@@ -346,7 +312,7 @@ def make_unique_equations(
                 TF_list = np.load(f"saved_7_dim_reduction_{n_op1}_{num_threads}.npz")["TF_list"]
                 need_calc_list = TF_list
             else:
-                how_loop = np.sum(np.sort(np.sum(TF_list, axis=1))[::-1][1:])
+                how_loop = int(np.sum(np.sort(np.sum(TF_list, axis=1))[::-1][1:]))
                 loop = np.sum(TF_list)
                 mem_size_per_1data = random_x.shape[1] * 8 + 8
                 mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
@@ -354,13 +320,8 @@ def make_unique_equations(
                     f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={loop})"
                 )
                 time1, time2 = time2, datetime.datetime.now()
-                with ProgressBar(
-                    total=how_loop,
-                    dynamic_ncols=False,
-                    disable=ProgressBar_disable,
-                    bar_format=bar_format,
-                    leave=False,
-                ) as progress:
+                header = "         "
+                with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                     TF_list = dim_reduction_7(TF_list, similar_num_list, progress)
                     need_calc_list = TF_list
                 time1, time2 = time2, datetime.datetime.now()
@@ -370,7 +331,7 @@ def make_unique_equations(
                 )
                 logger.info(f"         time : {time2-time1}")
             logger.info(f"      make_unique_equations_info")
-            how_loop = np.sum(TF_list)
+            how_loop = int(np.sum(TF_list))
             mem_size_per_1data = random_x.shape[1] * 8 + (2 * max_op + 1) + 5 * 8 + 1 + tot_mask_x.shape[0]
             mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
             loop = np.sum(TF_list)
@@ -378,13 +339,8 @@ def make_unique_equations(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, loop={loop})"
             )
             time1, time2 = time2, datetime.datetime.now()
-            with ProgressBar(
-                total=how_loop,
-                dynamic_ncols=False,
-                disable=ProgressBar_disable,
-                bar_format=bar_format,
-                leave=False,
-            ) as progress:
+            header = "         "
+            with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                 equation_list, similar_num_list, base_eq_id_list, need_calc_change_x = make_unique_equations_info_7(
                     n_op1, TF_list, random_x, progress
                 )
@@ -447,9 +403,9 @@ def make_unique_equations_thread(
         ops = [-1, -2, -3, -4]
     else:
         ops = [-4]
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
         cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
@@ -481,14 +437,14 @@ def make_unique_equations_thread(
                         if is_save:
                             similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
                             if k == 0:
-                                if similar_num[0, 0] == int_nan:
-                                    if np.sum(equation > 0) != 0:
+                                if similar_num[0, 0] == int_nan:  # any_isinf, all_const
+                                    if np.sum(equation > 0) != 0:  # likely (a-a), not (1+1)
                                         is_save, is_calc = False, False
-                                    elif np.all(similar_num[1] == 0):
+                                    elif np.all(similar_num[1] == 0):  # all_zero
                                         is_save, is_calc = False, False
-                                    else:
+                                    else:  # (1+1)
                                         is_calc = False
-                            elif arg_close_arr(similar_num[1], cache_for_mask_x[:n, 1]) != int_nan:
+                            elif arg_close_arr(similar_num[1], cache_for_mask_x[:n, 1]) != int_nan:  # found same
                                 continue
                             if is_save:
                                 cache_for_mask_x[n] = similar_num
@@ -496,9 +452,9 @@ def make_unique_equations_thread(
                             else:  # is_save=False
                                 break
                     if is_save:
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
-                        min_index = np.argmin(cache_for_mask_x[:n, 1, 0])
-                        if max_op + 1 != eq_x_max:
+                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])  # min
+                        min_index = np.argmin(cache_for_mask_x[:n, 1, 0])  # min
+                        if max_op + 1 != eq_x_max:  # except when using x of (number of operators + 1) type
                             same_head_index = indexes_close_arr(
                                 cache_for_mask_x[normalized_min_index, 0, 0],
                                 head_before_similar_num_list,
@@ -579,9 +535,9 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
         sort_index[0], TF_list[sort_index[0]]
     ]
     last_index = np.sum(TF_list[sort_index[0]])
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for target_index in sort_index[1:]:
         true_index = np.arange(TF_list.shape[1])[TF_list[target_index]]
         for thread_id in prange(num_threads):
@@ -633,14 +589,14 @@ def make_unique_equations_info(max_op, n_op1, TF_list, need_calc_list, random_x,
     return_base_eq_id_list = np.full((sum_TF, 5), int_nan, dtype="int64")
     return_need_calc_list = np.zeros((sum_TF), dtype="bool")
     return_need_calc_change_x = np.zeros((sum_TF, tot_mask_x.shape[0]), dtype="bool")
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
         cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
         last_index = np.sum(TF_list[:thread_id])
-        TF_list_thread = TF_list[thread_id]
+        TF_list_thread = TF_list[thread_id].copy()
         thread_need_calc_change_x = np.ones((tot_mask_x.shape[0]), dtype="bool")
         dict_change_x_pattern, dict_max_loop = make_dict_change_x_pattern(max_op)
         dict_mask_x = make_dict_mask_x(max_op + 1)
@@ -727,7 +683,7 @@ def make_unique_equations_thread_7(
     n_op2 = max_op - 1 - n_op1
     head_before_similar_num_list = before_similar_num_list[:, 0].copy()
     random_for_find_min_x_max = np.random.random(random_x.shape[1])
-    dict_change_x_pattern, dict_max_loop = make_dict_change_x_pattern(max_op + 1)
+    dict_change_x_pattern, dict_max_loop = make_dict_change_x_pattern(max_op)
     dict_mask_x = make_dict_mask_x(max_op + 1)
     base_dict = cache_load(max_op - 1)
     base_eq_arr1 = base_dict[n_op1]
@@ -744,12 +700,12 @@ def make_unique_equations_thread_7(
         ops = [-1, -2, -3, -4]
     else:
         ops = [-4]
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
+        cache_for_mask_x = np.full((tot_mask_x.shape[0], random_x.shape[1]), int_nan, dtype="float64")
         counter = 0
         loop = base_eq_arr1.shape[0] * base_eq_arr2.shape[0]
         for i in range(thread_id, loop, num_threads):
@@ -776,11 +732,11 @@ def make_unique_equations_thread_7(
                             if find_min_x_max(equation, random_x, random_for_find_min_x_max):
                                 is_save = False
                         if is_save:
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
+                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[0]  # normalized only
                             if k == 0:
-                                if similar_num[0, 0] == int_nan:
-                                    is_save = False
-                            elif arg_close_arr(similar_num[0], cache_for_mask_x[:n, 0]) != int_nan:
+                                if similar_num[0] == int_nan:  # any_isinf, all_const
+                                    is_save = False  # -> all drop
+                            elif arg_close_arr(similar_num, cache_for_mask_x[:n]) != int_nan:
                                 continue
                             if is_save:
                                 cache_for_mask_x[n] = similar_num
@@ -788,47 +744,47 @@ def make_unique_equations_thread_7(
                             else:  # is_save=False
                                 break
                     if is_save:
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
+                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0])
                         if max_op + 1 != eq_x_max:
                             same_head_index = indexes_close_arr(
-                                cache_for_mask_x[normalized_min_index, 0, 0],
+                                cache_for_mask_x[normalized_min_index, 0],
                                 head_before_similar_num_list,
                             )
                             for t in same_head_index:
                                 if isclose_arr(
-                                    cache_for_mask_x[normalized_min_index, 0],
+                                    cache_for_mask_x[normalized_min_index],
                                     before_similar_num_list[t],
                                 ):
                                     is_save = False
                                     break
                     if is_save:
                         same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0, 0],
+                            cache_for_mask_x[normalized_min_index, 0],
                             head_saved_similar_num_list,
                         )
                         for t in same_head_index:
                             if isclose_arr(
-                                cache_for_mask_x[normalized_min_index, 0],
+                                cache_for_mask_x[normalized_min_index],
                                 saved_similar_num_list[t],
                             ):
                                 is_save = False
                                 break
                     if is_save:
                         same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0, 0],
+                            cache_for_mask_x[normalized_min_index, 0],
                             head_save_similar_num_list[thread_id, :counter],
                         )
                         for t in same_head_index:
                             if isclose_arr(
-                                cache_for_mask_x[normalized_min_index, 0],
+                                cache_for_mask_x[normalized_min_index],
                                 save_similar_num_list[thread_id, t],
                             ):
                                 is_save = False
                                 break
                     if is_save:
                         TF_list[thread_id, counter] = True
-                        save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index, 0]
-                        head_save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index, 0, 0]
+                        save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index]
+                        head_save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index, 0]
                     counter += 1
                     progress_proxy.update(1)
     return TF_list, save_similar_num_list
@@ -848,9 +804,9 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
         sort_index[0], TF_list[sort_index[0]]
     ]
     last_index = np.sum(TF_list[sort_index[0]])
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for target_index in sort_index[1:]:
         true_index = np.arange(TF_list.shape[1])[TF_list[target_index]]
         for thread_id in prange(num_threads):
@@ -891,9 +847,9 @@ def make_unique_equations_info_7(n_op1, TF_list, random_x, progress_proxy):
     return_equation_list = np.full((sum_TF, 2 * max_op + 1), int_nan, dtype="int8")
     return_base_eq_id_list = np.full((sum_TF, 5), int_nan, dtype="int64")
     return_need_calc_change_x = np.zeros((sum_TF, tot_mask_x.shape[0]), dtype="bool")
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
         cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
@@ -975,9 +931,9 @@ def make_similar_num_by_saved_7(n_op1, TF_list, random_x, progress_proxy):
         ops = [-4]
     num_threads = TF_list.shape[0]
     return_similar_num_list = np.full((num_threads, TF_list.shape[1], random_x.shape[1]), int_nan, dtype="float64")
-    with objmode():
-        using_memory = psutil.Process().memory_info().rss / 1024**2
-        print(f"         using memory : {using_memory} M bytes")
+    # with objmode():
+    # using_memory = psutil.Process().memory_info().rss / 1024**2
+    # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
         TF_list_thread = TF_list[thread_id].copy()
@@ -1008,12 +964,12 @@ def make_similar_num_by_saved_7(n_op1, TF_list, random_x, progress_proxy):
                         )
                         eq_x_max = np.max(equation)
                         mask_x = dict_mask_x[eq_x_max]
-                        save_similar_num = nb_calc_RPN(random_x[mask_x[0]], equation)
+                        save_similar_num = nb_calc_RPN(random_x[mask_x[0]], equation)[0]  # normalized only
                         for k in range(1, mask_x.shape[0]):
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
-                            if save_similar_num[1, 0] > similar_num[1, 0]:
+                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[0]
+                            if save_similar_num[0] > similar_num[0]:
                                 save_similar_num = similar_num
-                        return_similar_num_list[thread_id, counter] = save_similar_num[0]
+                        return_similar_num_list[thread_id, counter] = save_similar_num
                         progress_proxy.update(1)
                     counter += 1
     return return_similar_num_list

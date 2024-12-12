@@ -186,52 +186,11 @@ def make_dict_mask_x(eq_x_max):
     return dict_mask_x
 
 
-"""
 @njit(parallel=True, error_model="numpy")
 def make_before_similar_num_list(num_threads, max_op, random_x, before_equations, progress_proxy):
     int_nan = -100
-    dict_mask_x = make_dict_mask_x(max_op)
-    loop_per_threads = before_equations.shape[0] // num_threads + 1
-    save_similar_num_list = np.full(
-        (num_threads, 2, loop_per_threads, random_x.shape[1]),
-        int_nan,
-        dtype="float64",
-    )
-    last_index = np.zeros((num_threads), dtype="int64")
-    for thread_id in prange(num_threads):
-        thread_similar_num_list = np.full((2, loop_per_threads, random_x.shape[1]), int_nan, dtype="float64")
-        for i in range(thread_id, before_equations.shape[0], num_threads):
-            eq_x_max = np.max(before_equations[i])
-            mask_x = dict_mask_x[eq_x_max]
-            save_similar_num = nb_calc_RPN(random_x, before_equations[i])
-            for k in range(1, mask_x.shape[0]):
-                similar_num = nb_calc_RPN(random_x[mask_x[k]], before_equations[i])
-                if save_similar_num[0, 0] > similar_num[0, 0]:
-                    save_similar_num[0] = similar_num[0]
-                if save_similar_num[1, 0] > similar_num[1, 0]:
-                    save_similar_num[1] = similar_num[1]
-            thread_similar_num_list[:, last_index[thread_id]] = save_similar_num
-            last_index[thread_id] += 1
-            progress_proxy.update(1)
-        save_similar_num_list[thread_id] = thread_similar_num_list
-    return_similar_num_list = np.full((2, np.sum(last_index), random_x.shape[1]), int_nan, dtype="float64")
-    tot_last_index = 0
-    for thread_id in range(num_threads):
-        return_similar_num_list[0, tot_last_index : tot_last_index + last_index[thread_id]] = save_similar_num_list[
-            thread_id, 0, : last_index[thread_id]
-        ]
-        return_similar_num_list[1, tot_last_index : tot_last_index + last_index[thread_id]] = save_similar_num_list[
-            thread_id, 1, : last_index[thread_id]
-        ]
-        tot_last_index += last_index[thread_id]
-    return return_similar_num_list
-"""
-
-
-@njit(parallel=True, error_model="numpy")
-def make_before_similar_num_list(num_threads, max_op, random_x, before_equations, progress_proxy):
-    int_nan = -100
-    dict_mask_x = make_dict_mask_x(max_op)
+    dict_mask_x = make_dict_mask_x(max_op)  # only ~max_op,
+    # Even if operator 3 is to be calculated from this, the use of four kinds of x is not in the before.
     shape = (2, before_equations.shape[0], random_x.shape[1])
     similar_num_list = np.full(shape, int_nan, dtype="float64")
     for thread_id in prange(num_threads):
@@ -241,9 +200,9 @@ def make_before_similar_num_list(num_threads, max_op, random_x, before_equations
             save_similar_num = nb_calc_RPN(random_x, before_equations[i])
             for k in range(1, mask_x.shape[0]):
                 similar_num = nb_calc_RPN(random_x[mask_x[k]], before_equations[i])
-                if save_similar_num[0, 0] > similar_num[0, 0]:
+                if save_similar_num[0, 0] > similar_num[0, 0]:  # min
                     save_similar_num[0] = similar_num[0]
-                if save_similar_num[1, 0] > similar_num[1, 0]:
+                if save_similar_num[1, 0] > similar_num[1, 0]:  # min
                     save_similar_num[1] = similar_num[1]
             similar_num_list[:, i] = save_similar_num
             progress_proxy.update(1)
