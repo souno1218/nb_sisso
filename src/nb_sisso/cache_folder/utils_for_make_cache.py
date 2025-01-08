@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit, prange, objmode
+from numba.types import int8
 
 
 @njit(error_model="numpy")
@@ -10,6 +11,17 @@ def cache_load(max_ops):
             data = np.load(f"operator_{i}.npy")
         unique_eq_dict[i] = data
     return unique_eq_dict
+
+
+@njit(error_model="numpy")
+def cache_check_change_x_load(max_ops):
+    int_nan = -100
+    check_change_x_dict = dict()
+    for i in range(max_ops + 1):
+        with objmode(data="int8[:,:,:]"):
+            data = np.load(f"check_change_x_tot_{i}.npz")["arr_0"]
+        check_change_x_dict[i] = data
+    return check_change_x_dict
 
 
 @njit(error_model="numpy")
@@ -58,16 +70,30 @@ def make_dict_change_x_pattern(max_ops):
 
 @njit(error_model="numpy")
 def make_eq(base_back_equation, change_x_pattern):
+    int_nan = -100
     return_equation = base_back_equation.copy()
-    for i in range(1, np.max(base_back_equation) + 1):
-        return_equation[base_back_equation == i] = change_x_pattern[i - 1]
+    for i in range(return_equation.size):
+        if return_equation.flat[i] > 0:
+            return_equation.flat[i] = change_x_pattern[return_equation.flat[i] - 1]
     return return_equation
+
+
+@njit(error_model="numpy")
+def make_check_change_x(base_check_change_x, change_x_pattern):
+    return_check_change_x = base_check_change_x.copy()
+    arange = np.arange(base_check_change_x.shape[0])
+    for i in range(1, np.max(base_check_change_x) + 1):
+        TF = base_check_change_x[:, 0] == i
+        return_check_change_x[arange[TF], 0] = change_x_pattern[i - 1]
+        TF = base_check_change_x[:, 1] == i
+        return_check_change_x[arange[TF], 1] = change_x_pattern[i - 1]
+    return return_check_change_x
 
 
 @njit(error_model="numpy")
 def nb_calc_RPN(x, equation):
     int_nan = -100
-    stack = np.full((np.sum(equation >= 0), x.shape[1]), int_nan, dtype="float64")
+    stack = np.full((count_True(equation, 6, 0), x.shape[1]), int_nan, dtype="float64")  # 6 -> lambda x: x >= border
     stack[0] = x[equation[0]]
     last_stack_index = 0
     for i in range(1, equation.shape[0]):
@@ -75,22 +101,11 @@ def nb_calc_RPN(x, equation):
         if last_op >= 0:
             last_stack_index += 1
             stack[last_stack_index] = x[last_op]
+        elif last_op == int_nan:
+            break
         else:
-            match last_op:
-                case -1:  # +
-                    last_stack_index -= 1
-                    stack[last_stack_index] += stack[last_stack_index + 1]
-                case -2:  # -
-                    last_stack_index -= 1
-                    stack[last_stack_index] -= stack[last_stack_index + 1]
-                case -3:  # *
-                    last_stack_index -= 1
-                    stack[last_stack_index] *= stack[last_stack_index + 1]
-                case -4:  # /
-                    last_stack_index -= 1
-                    stack[last_stack_index] /= stack[last_stack_index + 1]
-                case int_nan:
-                    break
+            last_stack_index -= 1
+            calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
     return_stack = np.empty((2, x.shape[1]), dtype="float64")
     if np.any(np.isinf(stack[0])):
         return_stack[:] = int_nan
@@ -108,6 +123,26 @@ def nb_calc_RPN(x, equation):
         return_stack[0] = np.sign(stack[0, 0] - _mean) * (stack[0] - _mean) / np.sqrt(np.mean((stack[0] - _mean) ** 2))
         return_stack[1] = np.sign(stack[0, 0]) * stack[0]
         return return_stack
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def calc_arr_binary_op(op, arr1, arr2):
+    match op:
+        case -1:  # +
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] + arr2[i]
+        case -2:  # -
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] - arr2[i]
+        case -3:  # *
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] * arr2[i]
+        case -4:  # a / b  (a > b)
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] / arr2[i]
+        case -5:  # b / a  (a > b)
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr2[i] / arr1[i]
 
 
 @njit(error_model="numpy")
@@ -149,7 +184,7 @@ def arg_close_arr(arr, mat, rtol=1e-06, atol=0):
 @njit(error_model="numpy")
 def find_min_x_max(equation, random_x, random_for_find_min_x_max, rtol=1e-06, atol=0):
     # a*(b-b) -> drop
-    if np.sum(equation > 0) == 0:
+    if count_True(equation, 5, 0) == 0:  # 5 -> lambda x: x > border
         return False
     similar_num = nb_calc_RPN(random_x, equation)[0]
     max_x = np.max(equation)
@@ -186,7 +221,7 @@ def make_before_similar_num_list(num_threads, max_op, random_x, before_equations
     int_nan = -100
     dict_mask_x = make_dict_mask_x(max_op)  # only ~max_op,
     # Even if operator 3 is to be calculated from this, the use of four kinds of x is not in the before.
-    shape = (2, before_equations.shape[0], random_x.shape[1])
+    shape = (before_equations.shape[0], 2, random_x.shape[1])
     similar_num_list = np.full(shape, int_nan, dtype="float64")
     for thread_id in prange(num_threads):
         for i in range(thread_id, before_equations.shape[0], num_threads):
@@ -199,8 +234,9 @@ def make_before_similar_num_list(num_threads, max_op, random_x, before_equations
                     save_similar_num[0] = similar_num[0]
                 if save_similar_num[1, 0] > similar_num[1, 0]:  # min
                     save_similar_num[1] = similar_num[1]
-            similar_num_list[:, i] = save_similar_num
+            similar_num_list[i] = save_similar_num
             progress_proxy.update(1)
+    similar_num_list = similar_num_list[np.argsort(similar_num_list[:, 0, 0])].copy()
     return similar_num_list
 
 
@@ -218,17 +254,8 @@ def loop_count(max_op, n_op1, num_threads):
             id1 = i % base_eq_arr1.shape[0]
             i //= base_eq_arr1.shape[0]
             id2 = i % base_eq_arr2.shape[0]
-            if n_op1 >= n_op2:
-                last_index[thread_id] += 4 * dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
-            else:
-                last_index[thread_id] += dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
-    tot_loop, loop_per_threads = np.sum(last_index), np.max(last_index)
-    # 要調整
-    # if max_op>=5:
-    # if n_op2==0:
-    # loop_per_threads=int(loop_per_threads*0.71)
-    # if (n_op2>=1)&(n_op1>=n_op2):
-    # loop_per_threads=int(loop_per_threads*0.151)
+            last_index[thread_id] += 5 * dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
+    tot_loop, loop_per_threads = int(np.sum(last_index)), int(np.max(last_index))
     return tot_loop, loop_per_threads
 
 
@@ -236,13 +263,13 @@ def loop_count(max_op, n_op1, num_threads):
 def make_change_x_id(mask, x_max):
     # mask -> [3,4,2] みたいな
     # x_max -> 全体としての最大値
-    if np.sum(mask) == 0:
+    if count_True(mask, 0, 0) == 0:  # 0 -> lambda x: x
         return 0
     TF = np.ones(x_max, dtype="bool")
     return_num = 0
     for i in range(mask.shape[0]):
         return_num *= x_max - i
-        return_num += np.sum(TF[: mask[i] - 1])
+        return_num += count_True(TF[: mask[i] - 1], 0, 0)  # 0 -> lambda x: x
         TF[mask[i] - 1] = False
     return return_num
 
@@ -265,9 +292,13 @@ def decryption(columns, equation):
             case -3:  # *
                 b, a = stack.pop(), stack.pop()
                 stack.append(("(" + a + "*" + b + ")"))
-            case -4:  # /
+            case -4:  # a / b  (a > b)
                 b, a = stack.pop(), stack.pop()
                 txt = "(" + a + "/" + b + ")"
+                stack.append(txt)
+            case -5:  # b / a  (a > b)
+                b, a = stack.pop(), stack.pop()
+                txt = "(" + b + "/" + a + ")"
                 stack.append(txt)
     return stack[0]
 
@@ -278,3 +309,82 @@ def thread_check(num_threads):
     for thread_id in prange(num_threads):
         checker[thread_id] = True
     return np.all(checker)
+
+
+@njit(error_model="numpy")
+def count_True(arr, mode, border):
+    count = 0
+    match mode:
+        case 0:  # lambda x: x
+            for i in arr.flat:
+                if i:
+                    count += 1
+        case 1:  # lambda x: x == border
+            for i in arr.flat:
+                if i == border:
+                    count += 1
+        case 2:  # lambda x: x != border
+            for i in arr.flat:
+                if i != border:
+                    count += 1
+        case 3:  # lambda x: x < border
+            for i in arr.flat:
+                if i < border:
+                    count += 1
+        case 4:  # lambda x: x <= border
+            for i in arr.flat:
+                if i <= border:
+                    count += 1
+        case 5:  # lambda x: x > border
+            for i in arr.flat:
+                if i > border:
+                    count += 1
+        case 6:  # lambda x: x >= border
+            for i in arr.flat:
+                if i >= border:
+                    count += 1
+    return count
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def make_check_change_x(mat):
+    int_nan = -100
+    if mat.shape[0] == 0:
+        return np.empty((0, 2), dtype="int8")
+    len_arr = mat.shape[1]
+    len_return_arr = ((len_arr - 2) * (len_arr - 1)) // 2
+    return_arr = np.full((len_return_arr, 2), int_nan, dtype="int8")
+    TF = np.zeros((len_return_arr, mat.shape[0]), dtype="bool")
+    n = 0
+    for i in range(1, len_arr - 1):
+        for j in range(i + 1, len_arr):
+            c = 0
+            for t in range(mat.shape[0]):
+                if mat[t, i] > mat[t, j]:
+                    c += 1
+                    TF[n, t] = True
+            if c > 0:
+                return_arr[n, 0] = i
+                return_arr[n, 1] = j
+                if c == mat.shape[0]:
+                    return np.expand_dims(return_arr[n], 0)
+                n += 1
+    checked = np.zeros((mat.shape[0]), dtype="bool")
+    count = np.array([count_True(TF[i], 0, int_nan) for i in range(n)])  # 0 -> lambda x : x
+    used = np.zeros((n), dtype="bool")
+    arange = np.arange(n)
+    for i in range(n):
+        max = np.max(count[~used])
+        indexes = arange[~used][count[~used] == max]
+        index = indexes[0]
+        if indexes.shape[0] != 0:
+            sum_num = np.sum(return_arr[index])
+            for j in range(1, indexes.shape[0]):
+                if sum_num > np.sum(return_arr[indexes[j]]):
+                    sum_num = np.sum(return_arr[indexes[j]])
+                    index = indexes[j]
+        checked |= TF[index]
+        used[index] = True
+        if np.all(checked):
+            return return_arr[arange[used]]
+        count = np.array([count_True(TF[j][~checked], 0, int_nan) for j in range(n)])  # 0 -> lambda x : x

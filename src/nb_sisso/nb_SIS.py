@@ -633,7 +633,7 @@ def sub_loop_binary_op(
     max_n_op = (save_eq_list.shape[2] - 1) // 2
     n_op2 = n_op - 1 - n_op1
 
-    for n_binary_op1 in range(n_op1 + 1):
+    for n_binary_op1 in range(n_op1, -1, -1):
         if not n_binary_op1 in list(used_eq_dict[n_op1].keys()):
             continue
         use_eq_arr1 = used_eq_dict[n_op1][n_binary_op1]
@@ -642,7 +642,7 @@ def sub_loop_binary_op(
         use_info_arr1 = used_info_dict[n_op1][n_binary_op1]
         if use_eq_arr1.shape[0] == 0:
             continue
-        for n_binary_op2 in range(n_op2 + 1):
+        for n_binary_op2 in range(n_op2, -1, -1):
             if not n_binary_op2 in list(used_eq_dict[n_op2].keys()):
                 continue
             if n_binary_op1 >= n_binary_op2:
