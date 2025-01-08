@@ -3,7 +3,8 @@
 import sys, datetime, threading, signal
 import numpy as np
 from scipy import integrate
-from numba import njit, prange
+from numba import njit, prange, objmode
+from numba.types import int8, int64
 
 
 def decryption(equation, columns=None):
@@ -27,11 +28,12 @@ def decryption(equation, columns=None):
             case -3:  # *
                 b, a = stack.pop(), stack.pop()
                 stack.append(f"({a}*{b})")
-            case -4:  # /
+            case -4:  # a / b  (a > b)
                 b, a = stack.pop(), stack.pop()
                 stack.append(f"({a}/{b})")
-            case -5:  # *-1
-                stack[len(stack) - 1] = f"({stack[len(stack)-1]}*-1)"
+            case -5:  # b / a  (a > b)
+                b, a = stack.pop(), stack.pop()
+                stack.append(f"({b}/{a})")
             case -6:  # ^-1
                 stack[len(stack) - 1] = f"({stack[len(stack)-1]}**-1)"
             case -7:  # ^2
@@ -133,7 +135,7 @@ def argmin_and_min(arr):
 @njit(error_model="numpy")
 def calc_RPN(x, equation, fmax_max=1e15, fmax_min=1e-15):
     # Nan_number=-100
-    stack = np.full((np.sum(equation >= 0), x.shape[1]), np.nan, dtype="float64")
+    stack = np.full((count_True(equation, 6, 0), x.shape[1]), np.nan, dtype="float64")  # 6 -> lambda x: x >= border
     last_stack_index = -1
     for i in range(equation.shape[0]):
         last_op = equation[i]
@@ -142,65 +144,67 @@ def calc_RPN(x, equation, fmax_max=1e15, fmax_min=1e-15):
             stack[last_stack_index] = 1
         if last_op > 0:
             last_stack_index += 1
-            stack[last_stack_index] = x[last_op - 1]
+            set_x(stack[last_stack_index], x[last_op - 1])
         else:
             match last_op:
                 case -1:  # +
                     last_stack_index -= 1
-                    stack[last_stack_index] += stack[last_stack_index + 1]
+                    calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
                 case -2:  # -
                     last_stack_index -= 1
-                    stack[last_stack_index] -= stack[last_stack_index + 1]
+                    calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
                 case -3:  # *
                     last_stack_index -= 1
-                    stack[last_stack_index] *= stack[last_stack_index + 1]
-                case -4:  # /
+                    calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
+                case -4:  # a / b  (a > b)
                     last_stack_index -= 1
-                    stack[last_stack_index] /= stack[last_stack_index + 1]
-                case -5:  # *-1
-                    stack[last_stack_index] *= -1
+                    calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
+                case -5:  # b / a  (a > b)
+                    last_stack_index -= 1
+                    calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
                 case -6:  # ^-1
-                    stack[last_stack_index] **= -1
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -7:  # ^2
-                    stack[last_stack_index] **= 2
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -8:  # sqrt
                     # only x>=0
                     if np.any(stack[last_stack_index] < 0):
                         stack[0, 0] = np.nan
                         return stack[0]
-                    stack[last_stack_index] **= 0.5
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -9:  # | |
                     # not all(x>=0),all(x<0)
                     if (0 >= np.max(stack[last_stack_index])) or (np.min(stack[last_stack_index]) >= 0):
                         stack[0, 0] = np.nan
                         return stack[0]
-                    stack[last_stack_index] = np.abs(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -10:  # ^3
-                    stack[last_stack_index] **= 3
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -11:  # cbrt
                     # only x>=0
                     if np.any(stack[last_stack_index] < 0):
                         stack[0, 0] = np.nan
                         return stack[0]
-                    stack[last_stack_index] = np.cbrt(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -12:  # ^6
-                    stack[last_stack_index] **= 6
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -13:  # exp
-                    stack[last_stack_index] = np.exp(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -14:  # exp-
-                    stack[last_stack_index] = np.exp(-stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -15:  # log
                     # only x>=0
                     if np.any(stack[last_stack_index] < 0):
                         stack[0, 0] = np.nan
                         return stack[0]
-                    stack[last_stack_index] = np.log(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -16:  # sin
-                    stack[last_stack_index] = np.sin(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -17:  # cos
-                    stack[last_stack_index] = np.cos(stack[last_stack_index])
+                    calc_arr_unary_op(last_op, stack[last_stack_index])
                 case -18:  # scd
-                    stack[last_stack_index] = np.sin(stack[last_stack_index])  # よくわからないため未実装
+                    # よくわからないため未実装
+                    None
                 case -100:  # END
                     break  # None
     max_, min_ = np.max(stack[last_stack_index]), np.min(stack[last_stack_index])
@@ -220,6 +224,74 @@ def calc_RPN(x, equation, fmax_max=1e15, fmax_min=1e-15):
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
+def set_x(arr_in, arr_out):
+    for i in range(arr_in.shape[0]):
+        arr_in[i] = arr_out[i]
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def calc_arr_binary_op(op, arr1, arr2):
+    match op:
+        case -1:  # +
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] + arr2[i]
+        case -2:  # -
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] - arr2[i]
+        case -3:  # *
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] * arr2[i]
+        case -4:  # a / b  (a > b)
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr1[i] / arr2[i]
+        case -5:  # b / a  (a > b)
+            for i in range(arr1.shape[0]):
+                arr1[i] = arr2[i] / arr1[i]
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def calc_arr_unary_op(op, arr):
+    match op:
+        case -6:  # ^-1
+            for i in range(arr.shape[0]):
+                arr[i] = arr[i] ** -1
+        case -7:  # ^2
+            for i in range(arr.shape[0]):
+                arr[i] = arr[i] ** 2
+        case -8:  # sqrt
+            for i in range(arr.shape[0]):
+                arr[i] = arr[i] ** 0.5
+        case -9:  # | |
+            for i in range(arr.shape[0]):
+                arr[i] = np.abs(arr[i])
+        case -10:  # ^3
+            for i in range(arr.shape[0]):
+                arr[i] = arr[i] ** 3
+        case -11:  # cbrt
+            for i in range(arr.shape[0]):
+                arr[i] = np.cbrt(arr[i])
+        case -12:  # ^6
+            for i in range(arr.shape[0]):
+                arr[i] = arr[i] ** 6
+        case -13:  # exp
+            for i in range(arr.shape[0]):
+                arr[i] = np.exp(arr[i])
+        case -14:  # exp-
+            for i in range(arr.shape[0]):
+                arr[i] = np.exp(-arr[i])
+        case -15:  # log
+            for i in range(arr.shape[0]):
+                arr[i] = np.log(arr[i])
+        case -16:  # sin
+            for i in range(arr.shape[0]):
+                arr[i] = np.sin(arr[i])
+        case -17:  # cos
+            for i in range(arr.shape[0]):
+                arr[i] = np.cos(arr[i])
+        # case -18:  # scd
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
 def is_zero(num, rtol=1e-010):
     return np.all(np.abs(num) <= rtol)
 
@@ -235,6 +307,41 @@ def is_one(num, rtol=1e-010):
 @njit(error_model="numpy")  # ,fastmath=True)
 def is_const(num, rtol=1e-010):
     return (np.max(num) - np.min(num)) <= rtol * np.abs(np.mean(num))
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def count_True(arr, mode, border):
+    count = 0
+    match mode:
+        case 0:  # lambda x: x
+            for i in arr.flat:
+                if i:
+                    count += 1
+        case 1:  # lambda x: x == border
+            for i in arr.flat:
+                if i == border:
+                    count += 1
+        case 2:  # lambda x: x != border
+            for i in arr.flat:
+                if i != border:
+                    count += 1
+        case 3:  # lambda x: x < border
+            for i in arr.flat:
+                if i < border:
+                    count += 1
+        case 4:  # lambda x: x <= border
+            for i in arr.flat:
+                if i <= border:
+                    count += 1
+        case 5:  # lambda x: x > border
+            for i in arr.flat:
+                if i > border:
+                    count += 1
+        case 6:  # lambda x: x >= border
+            for i in arr.flat:
+                if i >= border:
+                    count += 1
+    return count
 
 
 @njit(error_model="numpy")  # ,fastmath=True)

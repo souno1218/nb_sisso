@@ -131,7 +131,7 @@ def make_final_cache(
         unique_num = np.empty((0), dtype="int64")
         for i in (1, n_op2 + 2):
             all_pattern = nb_permutations(np.arange(1, max_ops + 2), i)
-            all_num = np.array([make_change_x_id(all_pattern[i], max_ops + 1) for i in range(all_pattern.shape[0])])
+            all_num = np.array([make_change_x_id(all_pattern[j], max_ops + 1) for j in range(all_pattern.shape[0])])
             unique_num = np.unique(np.concatenate((unique_num, all_num)))
         dict_num_to_index = {j: i for i, j in enumerate(unique_num)}
         if n_op1 >= n_op2:
@@ -156,13 +156,13 @@ def make_final_cache(
                 int_nan,
                 dtype="int64",
             )
-        index = np.arange(base_eq_id_list.shape[0])[base_eq_id_list[:, 1] == n_op1]
+        index = np.arange(base_eq_id_list.shape[0])[base_eq_id_list[:, 0] == n_op1]
         for i in index:
             cache[
+                base_eq_id_list[i, 1],
                 base_eq_id_list[i, 2],
-                base_eq_id_list[i, 3],
-                dict_num_to_index[base_eq_id_list[i, 4]],
-                base_eq_id_list[i, 0] + 4,
+                dict_num_to_index[base_eq_id_list[i, 3]],
+                base_eq_id_list[i, 4] + 4,
             ] = i
         return_cache[n_op1] = cache
         return_dict_num_to_index[n_op1] = dict_num_to_index
@@ -186,7 +186,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
     saved_equation_list = np.empty((0, 2 * max_op + 1), dtype="int8")
     saved_base_eq_id_list = np.empty((0, 5), dtype="int8")
     tot_mask_x = nb_permutations(np.arange(max_op + 1), max_op + 1)
-    saved_need_calc_change_x = np.empty((0, tot_mask_x.shape[0]), dtype="bool")
+    saved_need_calc_change_x = np.empty((0, max_op + 1), dtype="int8")
     if max_op != 7:
         saved_need_calc_list = np.empty((0), dtype="bool")
         saved_similar_num_list = np.empty((2, 0, random_x.shape[1]), dtype="float64")
@@ -245,7 +245,9 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                     need_calc_list,
                     base_eq_id_list,
                     need_calc_change_x,
-                ) = make_unique_equations_info(max_op, n_op1, TF_list, need_calc_list, random_x, progress)
+                ) = make_unique_equations_info(
+                    max_op, n_op1, TF_list, similar_num_list, need_calc_list, random_x, progress
+                )
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
             saved_equation_list = np.concatenate((saved_equation_list, equation_list))
@@ -342,7 +344,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
             header = "         "
             with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
                 equation_list, similar_num_list, base_eq_id_list, need_calc_change_x = make_unique_equations_info_7(
-                    n_op1, TF_list, random_x, progress
+                    n_op1, TF_list, similar_num_list, random_x, progress
                 )
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
@@ -388,7 +390,6 @@ def make_unique_equations_thread(
     base_eq_arr2 = base_dict[n_op2]
     len_base_eq1 = base_eq_arr1.shape[1]
     len_base_eq2 = base_eq_arr2.shape[1]
-    tot_mask_x = nb_permutations(np.arange(max_op + 1), max_op + 1)
     _, loop_per_threads = loop_count(max_op, n_op1, num_threads)
     head_saved_similar_num_list = saved_similar_num_list[0, :, 0].copy()
     save_similar_num_list = np.full(
@@ -408,7 +409,6 @@ def make_unique_equations_thread(
     # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
         counter = 0
         loop = base_eq_arr1.shape[0] * base_eq_arr2.shape[0]
         for i in range(thread_id, loop, num_threads):
@@ -423,93 +423,79 @@ def make_unique_equations_thread(
             for merge_op in ops:
                 equation[len_base_eq1 + len_base_eq2] = merge_op
                 for number in range(dict_max_loop[base_back_x_max, flont_x_max]):
-                    is_save, is_calc, n = True, True, 0
+                    is_save, is_calc = True, True
                     equation[len_base_eq1 : len_base_eq1 + len_base_eq2] = make_eq(
                         base_back_equation,
                         dict_change_x_pattern[base_back_x_max][number],
                     )
                     eq_x_max = np.max(equation)
                     mask_x = dict_mask_x[eq_x_max]
-                    for k in range(mask_x.shape[0]):
-                        if k == 0:
-                            if find_min_x_max(equation, random_x, random_for_find_min_x_max):
+                    if find_min_x_max(equation, random_x, random_for_find_min_x_max):
+                        is_save, is_calc = False, False
+                    else:
+                        save_similar_num = nb_calc_RPN(random_x, equation)
+                        if save_similar_num[0, 0] == int_nan:  # any_isinf, all_const
+                            if np.sum(equation > 0) != 0:  # likely (a-a), not (1+1)
                                 is_save, is_calc = False, False
+                            elif np.all(save_similar_num[1] == 0):  # all_zero
+                                is_save, is_calc = False, False
+                            else:  # (1+1)
+                                is_calc = False
                         if is_save:
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
-                            if k == 0:
-                                if similar_num[0, 0] == int_nan:  # any_isinf, all_const
-                                    if np.sum(equation > 0) != 0:  # likely (a-a), not (1+1)
-                                        is_save, is_calc = False, False
-                                    elif np.all(similar_num[1] == 0):  # all_zero
-                                        is_save, is_calc = False, False
-                                    else:  # (1+1)
-                                        is_calc = False
-                            elif arg_close_arr(similar_num[1], cache_for_mask_x[:n, 1]) != int_nan:  # found same
-                                continue
-                            if is_save:
-                                cache_for_mask_x[n] = similar_num
-                                n += 1
-                            else:  # is_save=False
-                                break
+                            for k in range(1, mask_x.shape[0]):
+                                similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
+                                if save_similar_num[0, 0] > similar_num[0, 0]:  # min
+                                    save_similar_num[0] = similar_num[0]
+                                if save_similar_num[1, 0] > similar_num[1, 0]:  # min
+                                    save_similar_num[1] = similar_num[1]
                     if is_save:
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])  # min
-                        min_index = np.argmin(cache_for_mask_x[:n, 1, 0])  # min
                         if max_op + 1 != eq_x_max:  # except when using x of (number of operators + 1) type
-                            same_head_index = indexes_close_arr(
-                                cache_for_mask_x[normalized_min_index, 0, 0],
-                                head_before_similar_num_list,
-                            )
-                            for t in same_head_index:
+                            for j in range(head_before_similar_num_list.shape[0]):
+                                if isclose(save_similar_num[0, 0], head_before_similar_num_list[j]):
+                                    if isclose_arr(
+                                        save_similar_num[0],
+                                        before_similar_num_list[0, j],
+                                    ):
+                                        is_calc = False
+                                        if isclose_arr(
+                                            save_similar_num[1],
+                                            before_similar_num_list[1, j],
+                                        ):
+                                            is_save = False
+                                            break
+                    if is_save:
+                        for j in range(head_saved_similar_num_list.shape[0]):
+                            if isclose(save_similar_num[0, 0], head_saved_similar_num_list[j]):
                                 if isclose_arr(
-                                    cache_for_mask_x[normalized_min_index, 0],
-                                    before_similar_num_list[0, t],
+                                    save_similar_num[0],
+                                    saved_similar_num_list[0, j],
                                 ):
                                     is_calc = False
                                     if isclose_arr(
-                                        cache_for_mask_x[min_index, 1],
-                                        before_similar_num_list[1, t],
+                                        save_similar_num[1],
+                                        saved_similar_num_list[1, j],
                                     ):
                                         is_save = False
                                         break
                     if is_save:
-                        same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0, 0],
-                            head_saved_similar_num_list,
-                        )
-                        for t in same_head_index:
-                            if isclose_arr(
-                                cache_for_mask_x[normalized_min_index, 0],
-                                saved_similar_num_list[0, t],
-                            ):
-                                is_calc = False
+                        for j in range(counter):
+                            if isclose(save_similar_num[0, 0], head_save_similar_num_list[thread_id, j]):
                                 if isclose_arr(
-                                    cache_for_mask_x[min_index, 1],
-                                    saved_similar_num_list[1, t],
+                                    save_similar_num[0],
+                                    save_similar_num_list[thread_id, 0, j],
                                 ):
-                                    is_save = False
-                                    break
-                    if is_save:
-                        same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0, 0],
-                            head_save_similar_num_list[thread_id, :counter],
-                        )
-                        for t in same_head_index:
-                            if isclose_arr(
-                                cache_for_mask_x[normalized_min_index, 0],
-                                save_similar_num_list[thread_id, 0, t],
-                            ):
-                                is_calc = False
-                                if isclose_arr(
-                                    cache_for_mask_x[min_index, 1],
-                                    save_similar_num_list[thread_id, 1, t],
-                                ):
-                                    is_save = False
-                                    break
+                                    is_calc = False
+                                    if isclose_arr(
+                                        save_similar_num[1],
+                                        save_similar_num_list[thread_id, 1, j],
+                                    ):
+                                        is_save = False
+                                        break
                     if is_save:
                         TF_list[thread_id, counter] = True
-                        save_similar_num_list[thread_id, 0, counter] = cache_for_mask_x[normalized_min_index, 0]
-                        save_similar_num_list[thread_id, 1, counter] = cache_for_mask_x[min_index, 1]
-                        head_save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index, 0, 0]
+                        save_similar_num_list[thread_id, 0, counter] = save_similar_num[0]
+                        save_similar_num_list[thread_id, 1, counter] = save_similar_num[1]
+                        head_save_similar_num_list[thread_id, counter] = save_similar_num[0, 0]
                         save_need_calc_list[thread_id, counter] = is_calc
                     counter += 1
                     progress_proxy.update(1)
@@ -521,7 +507,7 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
     threads_last_index = np.array([np.sum(TF_list[i]) for i in range(num_threads)])
-    sort_index = np.argsort(threads_last_index)[::-1]
+    sort_index = np.argsort(threads_last_index)
     return_similar_num_list = np.full((2, np.sum(TF_list), similar_num_list.shape[3]), int_nan, dtype="float64")
     return_similar_num_list[0, : np.sum(TF_list[sort_index[0]])] = similar_num_list[
         sort_index[0], 0, TF_list[sort_index[0]]
@@ -539,25 +525,24 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
     # using_memory = psutil.Process().memory_info().rss / 1024**2
     # print(f"         using memory : {using_memory} M bytes")
     for target_index in sort_index[1:]:
-        true_index = np.arange(TF_list.shape[1])[TF_list[target_index]]
+        true_index = np.random.permutation(np.arange(TF_list.shape[1])[TF_list[target_index]])
         for thread_id in prange(num_threads):
             true_index_thread = true_index[thread_id::num_threads].copy()
             for i in true_index_thread:
-                for t in indexes_close_arr(
-                    similar_num_list[target_index, 0, i, 0],
-                    head_return_similar_num_list[:last_index],
-                ):
-                    if isclose_arr(
-                        similar_num_list[target_index, 0, i],
-                        return_similar_num_list[0, t],
-                    ):
-                        need_calc_list[target_index, i] = False
+                head_target = similar_num_list[target_index, 0, i, 0]
+                for j in range(last_index):
+                    if isclose(head_target, head_return_similar_num_list[j]):
                         if isclose_arr(
-                            similar_num_list[target_index, 1, i],
-                            return_similar_num_list[1, t],
+                            similar_num_list[target_index, 0, i],
+                            return_similar_num_list[0, j],
                         ):
-                            TF_list[target_index, i] = False
-                            break
+                            need_calc_list[target_index, i] = False
+                            if isclose_arr(
+                                similar_num_list[target_index, 1, i],
+                                return_similar_num_list[1, j],
+                            ):
+                                TF_list[target_index, i] = False
+                                break
                 progress_proxy.update(1)
         return_similar_num_list[0, last_index : last_index + np.sum(TF_list[target_index])] = similar_num_list[
             target_index, 0, TF_list[target_index]
@@ -573,11 +558,10 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
 
 
 @njit(parallel=True, error_model="numpy")
-def make_unique_equations_info(max_op, n_op1, TF_list, need_calc_list, random_x, progress_proxy):
+def make_unique_equations_info(max_op, n_op1, TF_list, similar_num_list, need_calc_list, random_x, progress_proxy):
     int_nan = -100
     n_op2 = max_op - 1 - n_op1
     base_dict = cache_load(max_op - 1)
-    tot_mask_x = nb_permutations(np.arange(max_op + 1), max_op + 1)
     if n_op1 >= n_op2:
         ops = [-1, -2, -3, -4]
     else:
@@ -588,18 +572,17 @@ def make_unique_equations_info(max_op, n_op1, TF_list, need_calc_list, random_x,
     return_equation_list = np.full((sum_TF, 2 * max_op + 1), int_nan, dtype="int8")
     return_base_eq_id_list = np.full((sum_TF, 5), int_nan, dtype="int64")
     return_need_calc_list = np.zeros((sum_TF), dtype="bool")
-    return_need_calc_change_x = np.zeros((sum_TF, tot_mask_x.shape[0]), dtype="bool")
+    return_need_calc_change_x = np.zeros((sum_TF, max_op + 1), dtype="int8")
     # with objmode():
     # using_memory = psutil.Process().memory_info().rss / 1024**2
     # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
+        arange = np.arange(random_x.shape[0])
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
         last_index = np.sum(TF_list[:thread_id])
         TF_list_thread = TF_list[thread_id].copy()
-        thread_need_calc_change_x = np.ones((tot_mask_x.shape[0]), dtype="bool")
+        thread_need_calc_change_x = np.ones((max_op + 1), dtype="int8")
         dict_change_x_pattern, dict_max_loop = make_dict_change_x_pattern(max_op)
-        dict_mask_x = make_dict_mask_x(max_op + 1)
         base_eq_arr1 = base_dict[n_op1]
         base_eq_arr2 = base_dict[n_op2]
         len_base_eq1 = base_eq_arr1.shape[1]
@@ -623,40 +606,44 @@ def make_unique_equations_info(max_op, n_op1, TF_list, need_calc_list, random_x,
                         dict_change_x_pattern[base_back_x_max][number],
                     )
                     if TF_list_thread[counter]:
-                        n = 0
                         equation[len_base_eq1 : len_base_eq1 + len_base_eq2] = make_eq(
                             base_back_equation,
                             dict_change_x_pattern[base_back_x_max][number],
                         )
                         eq_x_max = np.max(equation)
-                        mask_x = dict_mask_x[eq_x_max]
-                        thread_need_calc_change_x[:] = True
-                        for k in range(mask_x.shape[0]):
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
-                            if arg_close_arr(similar_num[1], cache_for_mask_x[:n, 1]) != int_nan:
-                                thread_need_calc_change_x[k] = False
-                                # neeeeeeeed
-                                continue
-                            else:
-                                cache_for_mask_x[n] = similar_num
-                                n += 1
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
-                        min_index = np.argmin(cache_for_mask_x[:n, 1, 0])
-                        return_similar_num_list[0, last_index] = cache_for_mask_x[normalized_min_index, 0]
-                        return_similar_num_list[1, last_index] = cache_for_mask_x[min_index, 1]
+                        base_similar_num = nb_calc_RPN(random_x, equation)[0]
+                        thread_need_calc_change_x[:] = int_nan
+                        n = 0
+                        same = False
+                        for j in range(1, eq_x_max):
+                            if thread_need_calc_change_x[j] == int_nan:
+                                for k in range(2, eq_x_max + 1):
+                                    if j != k:
+                                        if thread_need_calc_change_x[k] == int_nan:
+                                            arange[j], arange[k] = k, j
+                                            similar_num = nb_calc_RPN(random_x[arange], equation)[0]
+                                            if isclose(base_similar_num[0], similar_num[0]):
+                                                if isclose_arr(base_similar_num, similar_num):
+                                                    thread_need_calc_change_x[j] = n
+                                                    thread_need_calc_change_x[k] = n
+                                                    same = True
+                                            arange[j], arange[k] = j, k
+                                if same:
+                                    n += 1
+                                    same = False
+                        return_similar_num_list[0, last_index] = similar_num_list[thread_id, 0, counter]
+                        return_similar_num_list[1, last_index] = similar_num_list[thread_id, 0, counter]
                         return_equation_list[last_index] = equation
                         return_need_calc_list[last_index] = need_calc_list[thread_id, counter]
-                        return_base_eq_id_list[last_index, 0] = merge_op
-                        return_base_eq_id_list[last_index, 1] = n_op1
-                        return_base_eq_id_list[last_index, 2] = id1
-                        return_base_eq_id_list[last_index, 3] = id2
+                        return_base_eq_id_list[last_index, 0] = n_op1
+                        return_base_eq_id_list[last_index, 1] = id1
+                        return_base_eq_id_list[last_index, 2] = id2
                         changed_back_eq_id = make_change_x_id(
                             dict_change_x_pattern[base_back_x_max][number], max_op + 1
                         )
-                        return_base_eq_id_list[last_index, 4] = changed_back_eq_id
-                        return_need_calc_change_x[last_index, : mask_x.shape[0]] = thread_need_calc_change_x[
-                            : mask_x.shape[0]
-                        ]
+                        return_base_eq_id_list[last_index, 3] = changed_back_eq_id
+                        return_need_calc_change_x[last_index] = thread_need_calc_change_x
+                        return_base_eq_id_list[last_index, 4] = merge_op
                         last_index += 1
                         progress_proxy.update(1)
                     counter += 1
@@ -690,7 +677,6 @@ def make_unique_equations_thread_7(
     base_eq_arr2 = base_dict[n_op2]
     len_base_eq1 = base_eq_arr1.shape[1]
     len_base_eq2 = base_eq_arr2.shape[1]
-    tot_mask_x = nb_permutations(np.arange(max_op + 1), max_op + 1)
     _, loop_per_threads = loop_count(max_op, n_op1, num_threads)
     head_saved_similar_num_list = saved_similar_num_list[:, 0].copy()
     save_similar_num_list = np.full((num_threads, loop_per_threads, random_x.shape[1]), int_nan, dtype="float64")
@@ -705,7 +691,6 @@ def make_unique_equations_thread_7(
     # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.full((tot_mask_x.shape[0], random_x.shape[1]), int_nan, dtype="float64")
         counter = 0
         loop = base_eq_arr1.shape[0] * base_eq_arr2.shape[0]
         for i in range(thread_id, loop, num_threads):
@@ -720,71 +705,47 @@ def make_unique_equations_thread_7(
             for merge_op in ops:
                 equation[len_base_eq1 + len_base_eq2] = merge_op
                 for number in range(dict_max_loop[base_back_x_max, flont_x_max]):
-                    is_save, n = True, 0
+                    is_save = True
                     equation[len_base_eq1 : len_base_eq1 + len_base_eq2] = make_eq(
                         base_back_equation,
                         dict_change_x_pattern[base_back_x_max][number],
                     )
                     eq_x_max = np.max(equation)
                     mask_x = dict_mask_x[eq_x_max]
-                    for k in range(mask_x.shape[0]):
-                        if k == 0:
-                            if find_min_x_max(equation, random_x, random_for_find_min_x_max):
-                                is_save = False
-                        if is_save:
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[0]  # normalized only
-                            if k == 0:
-                                if similar_num[0] == int_nan:  # any_isinf, all_const
-                                    is_save = False  # -> all drop
-                            elif arg_close_arr(similar_num, cache_for_mask_x[:n]) != int_nan:
-                                continue
-                            if is_save:
-                                cache_for_mask_x[n] = similar_num
-                                n += 1
-                            else:  # is_save=False
-                                break
+                    if find_min_x_max(equation, random_x, random_for_find_min_x_max):
+                        is_save = False
+                    else:
+                        save_similar_num = nb_calc_RPN(random_x, equation)[0]  # normalized only
+                        if save_similar_num[0] == int_nan:  # any_isinf, all_const
+                            is_save = False  # -> all drop
+                        else:
+                            for k in range(1, mask_x.shape[0]):
+                                similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[0]  # normalized only
+                                if save_similar_num[0] > similar_num[0]:
+                                    save_similar_num = similar_num
                     if is_save:
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0])
                         if max_op + 1 != eq_x_max:
-                            same_head_index = indexes_close_arr(
-                                cache_for_mask_x[normalized_min_index, 0],
-                                head_before_similar_num_list,
-                            )
-                            for t in same_head_index:
-                                if isclose_arr(
-                                    cache_for_mask_x[normalized_min_index],
-                                    before_similar_num_list[t],
-                                ):
+                            for j in range(head_before_similar_num_list.shape[0]):
+                                if isclose(save_similar_num[0], head_before_similar_num_list[j]):
+                                    if isclose_arr(save_similar_num, before_similar_num_list[j]):
+                                        is_save = False
+                                        break
+                    if is_save:
+                        for j in range(head_saved_similar_num_list.shape[0]):
+                            if isclose(save_similar_num[0], head_saved_similar_num_list[j]):
+                                if isclose_arr(save_similar_num, saved_similar_num_list[j]):
                                     is_save = False
                                     break
                     if is_save:
-                        same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0],
-                            head_saved_similar_num_list,
-                        )
-                        for t in same_head_index:
-                            if isclose_arr(
-                                cache_for_mask_x[normalized_min_index],
-                                saved_similar_num_list[t],
-                            ):
-                                is_save = False
-                                break
-                    if is_save:
-                        same_head_index = indexes_close_arr(
-                            cache_for_mask_x[normalized_min_index, 0],
-                            head_save_similar_num_list[thread_id, :counter],
-                        )
-                        for t in same_head_index:
-                            if isclose_arr(
-                                cache_for_mask_x[normalized_min_index],
-                                save_similar_num_list[thread_id, t],
-                            ):
-                                is_save = False
-                                break
+                        for j in range(counter):
+                            if isclose(save_similar_num[0], head_save_similar_num_list[thread_id, j]):
+                                if isclose_arr(save_similar_num, save_similar_num_list[thread_id, j]):
+                                    is_save = False
+                                    break
                     if is_save:
                         TF_list[thread_id, counter] = True
-                        save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index]
-                        head_save_similar_num_list[thread_id, counter] = cache_for_mask_x[normalized_min_index, 0]
+                        save_similar_num_list[thread_id, counter] = save_similar_num
+                        head_save_similar_num_list[thread_id, counter] = save_similar_num[0]
                     counter += 1
                     progress_proxy.update(1)
     return TF_list, save_similar_num_list
@@ -795,7 +756,7 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
     threads_last_index = np.array([np.sum(TF_list[i]) for i in range(num_threads)])
-    sort_index = np.argsort(threads_last_index)[::-1]
+    sort_index = np.argsort(threads_last_index)
     return_similar_num_list = np.full((np.sum(TF_list), similar_num_list.shape[2]), int_nan, dtype="float64")
     return_similar_num_list[: np.sum(TF_list[sort_index[0]])] = similar_num_list[sort_index[0], TF_list[sort_index[0]]]
     head_return_similar_num_list = np.full((np.sum(TF_list)), int_nan, dtype="float64")
@@ -808,17 +769,16 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
     # using_memory = psutil.Process().memory_info().rss / 1024**2
     # print(f"         using memory : {using_memory} M bytes")
     for target_index in sort_index[1:]:
-        true_index = np.arange(TF_list.shape[1])[TF_list[target_index]]
+        true_index = np.random.permutation(np.arange(TF_list.shape[1])[TF_list[target_index]])
         for thread_id in prange(num_threads):
             true_index_thread = true_index[thread_id::num_threads].copy()
             for i in true_index_thread:
-                for t in indexes_close_arr(
-                    similar_num_list[target_index, i, 0],
-                    head_return_similar_num_list[:last_index],
-                ):
-                    if isclose_arr(similar_num_list[target_index, i], return_similar_num_list[t]):
-                        TF_list[target_index, i] = False
-                        break
+                head_target = similar_num_list[target_index, i, 0]
+                for j in range(last_index):
+                    if isclose(head_target, head_return_similar_num_list[j]):
+                        if isclose_arr(similar_num_list[target_index, i], return_similar_num_list[j]):
+                            TF_list[target_index, i] = False
+                            break
                 progress_proxy.update(1)
         return_similar_num_list[last_index : last_index + np.sum(TF_list[target_index])] = similar_num_list[
             target_index, TF_list[target_index]
@@ -831,12 +791,11 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
 
 
 @njit(parallel=True, error_model="numpy")
-def make_unique_equations_info_7(n_op1, TF_list, random_x, progress_proxy):
+def make_unique_equations_info_7(n_op1, TF_list, similar_num_list, random_x, progress_proxy):
     int_nan = -100
     max_op = 7
     n_op2 = max_op - 1 - n_op1
     base_dict = cache_load(max_op - 1)
-    tot_mask_x = nb_permutations(np.arange(max_op + 1), max_op + 1)
     if n_op1 >= n_op2:
         ops = [-1, -2, -3, -4]
     else:
@@ -846,18 +805,17 @@ def make_unique_equations_info_7(n_op1, TF_list, random_x, progress_proxy):
     return_similar_num_list = np.full((sum_TF, random_x.shape[1]), int_nan, dtype="float64")
     return_equation_list = np.full((sum_TF, 2 * max_op + 1), int_nan, dtype="int8")
     return_base_eq_id_list = np.full((sum_TF, 5), int_nan, dtype="int64")
-    return_need_calc_change_x = np.zeros((sum_TF, tot_mask_x.shape[0]), dtype="bool")
+    return_need_calc_change_x = np.zeros((sum_TF, max_op + 1), dtype="int8")
     # with objmode():
     # using_memory = psutil.Process().memory_info().rss / 1024**2
     # print(f"         using memory : {using_memory} M bytes")
     for thread_id in prange(num_threads):
+        arange = np.arange(random_x.shape[0])
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.full((tot_mask_x.shape[0], 2, random_x.shape[1]), int_nan, dtype="float64")
         last_index = np.sum(TF_list[:thread_id])
         TF_list_thread = TF_list[thread_id].copy()
-        thread_need_calc_change_x = np.ones((tot_mask_x.shape[0]), dtype="bool")
+        thread_need_calc_change_x = np.ones((max_op + 1), dtype="int8")
         dict_change_x_pattern, dict_max_loop = make_dict_change_x_pattern(max_op)
-        dict_mask_x = make_dict_mask_x(max_op + 1)
         base_eq_arr1 = base_dict[n_op1]
         base_eq_arr2 = base_dict[n_op2]
         len_base_eq1 = base_eq_arr1.shape[1]
@@ -883,31 +841,38 @@ def make_unique_equations_info_7(n_op1, TF_list, random_x, progress_proxy):
                             dict_change_x_pattern[base_back_x_max][number],
                         )
                         eq_x_max = np.max(equation)
-                        mask_x = dict_mask_x[eq_x_max]
-                        thread_need_calc_change_x[:] = True
-                        for k in range(mask_x.shape[0]):
-                            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
-                            if arg_close_arr(similar_num[1], cache_for_mask_x[:n, 1]) != int_nan:
-                                thread_need_calc_change_x[k] = False
-                                # neeeeeeeed
-                                continue
-                            else:
-                                cache_for_mask_x[n] = similar_num
-                                n += 1
-                        normalized_min_index = np.argmin(cache_for_mask_x[:n, 0, 0])
-                        return_similar_num_list[last_index] = cache_for_mask_x[normalized_min_index, 0]
+                        base_similar_num = nb_calc_RPN(random_x, equation)[0]
+                        thread_need_calc_change_x[:] = int_nan
+                        n = 0
+                        same = False
+                        for j in range(1, eq_x_max):
+                            if thread_need_calc_change_x[j] == int_nan:
+                                for k in range(2, eq_x_max + 1):
+                                    if j != k:
+                                        if thread_need_calc_change_x[k] == int_nan:
+                                            arange[j], arange[k] = k, j
+                                            similar_num = nb_calc_RPN(random_x[arange], equation)[0]
+                                            if isclose(base_similar_num[0], similar_num[0]):
+                                                if isclose_arr(base_similar_num, similar_num):
+                                                    thread_need_calc_change_x[j] = n
+                                                    thread_need_calc_change_x[k] = n
+                                                    same = True
+                                            arange[j], arange[k] = j, k
+                                if same:
+                                    n += 1
+                                    same = False
+                        return_similar_num_list[0, last_index] = similar_num_list[thread_id, 0, counter]
+                        return_similar_num_list[1, last_index] = similar_num_list[thread_id, 0, counter]
                         return_equation_list[last_index] = equation
-                        return_base_eq_id_list[last_index, 0] = merge_op
-                        return_base_eq_id_list[last_index, 1] = n_op1
-                        return_base_eq_id_list[last_index, 2] = id1
-                        return_base_eq_id_list[last_index, 3] = id2
+                        return_base_eq_id_list[last_index, 0] = n_op1
+                        return_base_eq_id_list[last_index, 1] = id1
+                        return_base_eq_id_list[last_index, 2] = id2
                         changed_back_eq_id = make_change_x_id(
                             dict_change_x_pattern[base_back_x_max][number], max_op + 1
                         )
-                        return_base_eq_id_list[last_index, 4] = changed_back_eq_id
-                        return_need_calc_change_x[last_index, : mask_x.shape[0]] = thread_need_calc_change_x[
-                            : mask_x.shape[0]
-                        ]
+                        return_base_eq_id_list[last_index, 3] = changed_back_eq_id
+                        return_need_calc_change_x[last_index] = thread_need_calc_change_x
+                        return_base_eq_id_list[last_index, 4] = merge_op
                         last_index += 1
                         progress_proxy.update(1)
                     counter += 1
@@ -919,6 +884,7 @@ def make_unique_equations_info_7(n_op1, TF_list, random_x, progress_proxy):
     )
 
 
+# no use
 @njit(parallel=True, error_model="numpy")
 def make_similar_num_by_saved_7(n_op1, TF_list, random_x, progress_proxy):
     int_nan = -100

@@ -111,7 +111,7 @@ def nb_calc_RPN(x, equation):
 
 
 @njit(error_model="numpy")
-def isclose(a, b, rtol=1e-05, atol=1e-08):
+def isclose(a, b, rtol=1e-06, atol=0):
     return np.abs(a - b) <= atol + rtol * np.abs(b)
 
 
@@ -144,11 +144,6 @@ def arg_close_arr(arr, mat, rtol=1e-06, atol=0):
         if isclose_arr(arr, mat[i], rtol=rtol, atol=atol):
             return i
     return int_nan
-
-
-@njit(error_model="numpy")
-def indexes_close_arr(num, arr, rtol=1e-06, atol=0):
-    return np.arange(arr.shape[0])[isclose(num, arr, rtol=rtol, atol=atol)]
 
 
 @njit(error_model="numpy")
@@ -239,6 +234,8 @@ def loop_count(max_op, n_op1, num_threads):
 
 @njit(error_model="numpy")
 def make_change_x_id(mask, x_max):
+    # mask -> [3,4,2] みたいな
+    # x_max -> 全体としての最大値
     if np.sum(mask) == 0:
         return 0
     TF = np.ones(x_max, dtype="bool")

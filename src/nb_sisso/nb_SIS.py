@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 import numpy as np
 from .log_progress import loop_log
 from numba_progress import ProgressBar
 import importlib.resources as pkg_resources
 import numba, os, datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode
+
 from .utils import (
     thread_check,
     calc_RPN,
@@ -13,8 +15,8 @@ from .utils import (
     raise_and_log,
     dtype_shape_check,
     type_check,
-    is_const,
     p_upper_x,
+    count_True,
 )
 
 
@@ -78,7 +80,7 @@ def SIS(
         Maximum operator quantity, by default 5.
     operators_to_use : list, optional
         Operators to be considered, by default ["+", "-", "*", "/"].
-        Choose from ["+","-","*","/","*-1","**-1","**2","sqrt","| |","**3","cbrt","**6","exp","exp-","log","sin","cos","scd"].
+        Choose from ["+","-","*","/","**-1","**2","sqrt","| |","**3","cbrt","**6","exp","exp-","log","sin","cos","scd"].
     num_threads : int, optional
         Number of CPU cores used. If not set, all cpu cores are used.
     fast : bool, optional
@@ -114,7 +116,7 @@ def SIS(
         utils.decryption can be used to decrypt the data.
     """
 
-    Nan_number = -100
+    int_nan = -100
 
     # logger
     if logger is None:
@@ -147,8 +149,7 @@ def SIS(
 
     # shuffle
     index = np.arange(x.shape[1])
-    # rng = np.random.default_rng(seed=123)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng()  # seed=123)
     rng.shuffle(index)
     x = x.T[index].T.copy()
     y = y[index].copy()
@@ -176,7 +177,6 @@ def SIS(
         "-": -2,
         "*": -3,
         "/": -4,
-        "*-1": -5,
         "**-1": -6,
         "**2": -7,
         "sqrt": -8,
@@ -206,6 +206,8 @@ def SIS(
     for i in list(dict_op_str_to_num.keys())[:4]:
         if i in operators_to_use:
             use_binary_op += [dict_op_str_to_num[i]]
+    if -4 in operators_to_use:
+        use_binary_op += [-5]
 
     # use_unary_op
     use_unary_op = []
@@ -248,7 +250,7 @@ def SIS(
     logger.info(f"END, compile")
 
     save_score_list = np.full((num_threads, how_many_per1c, 2), np.finfo(np.float64).min, dtype="float64")
-    save_eq_list = np.full((num_threads, how_many_per1c, 2 * max_n_op + 1), Nan_number, dtype="int8")
+    save_eq_list = np.full((num_threads, how_many_per1c, 2 * max_n_op + 1), int_nan, dtype="int8")
     min_index_list = np.zeros(num_threads, dtype="int64")
     border_list = np.full((num_threads, 2), np.finfo(np.float64).min, dtype="float64")
 
@@ -423,85 +425,108 @@ def loop_counter_unary(n_op, used_eq_dict):
 
 @njit(error_model="numpy")
 def make_change_x_id(mask, x_max):
-    if np.sum(mask) == 0:
+    # mask -> [3,4,2] みたいな
+    # x_max -> 全体としての最大値
+    if count_True(mask, 0, 0) == 0:  # 0 -> lambda x : x
         return 0
     TF = np.ones(x_max, dtype="bool")
     return_num = 0
     for i in range(mask.shape[0]):
         return_num *= x_max - i
-        return_num += np.sum(TF[: mask[i] - 1])
+        return_num += count_True(TF[: mask[i] - 1], 0, 0)  # 0 -> lambda x : x
         TF[mask[i] - 1] = False
     return return_num
 
 
 @njit(error_model="numpy")
 def eq_to_num(eq, x_max):
-    Nan_number = -100
-    len_eq = np.sum(eq != Nan_number)
-    num = eq[len_eq - 1] + 18  # -5~-18
-    for i in range(len_eq - 2, 0, -1):
-        num = num * (x_max + 19) + (18 + eq[i])
+    int_nan = -100
+    len_eq = count_True(eq, 2, int_nan)  # 2 -> lambda x: x != border
+    num = 0
+    for i in range(len_eq - 1, 0, -1):
+        num = num * (x_max + 19) + (18 + np.int64(eq[i]))  # -5~-18
     num = num * (x_max + 1) + eq[0]
     return num
 
 
 @njit(error_model="numpy")
 def load_preprocessed_results(n_binary_op, n_binary_op1):
-    Nan_number = -100
+    int_nan = -100
     # back_eq -> make_change_x_id -> changed_back_eq_x_num
     # num_to_index         :  [changed_back_eq_x_num]->changed_back_eq_x_index
-    # preprocessed_results :  [id1,id2,changed_back_eq_x_index,merge_op]->eq_id or Nan_number
+    # preprocessed_results :  [id1,id2,changed_back_eq_x_index,merge_op]->eq_id or int_nan
     # eq -> make_change_x_id -> shuffled_eq_x_num
-    # need_calc_change_x_dict  :  [n_binary_op,eq_id,shuffled_eq_x_num]->bool
-    with objmode(preprocessed_results="int64[:,:,:,:]"):
-        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
-        preprocessed_results = np.load(f"{cache_path}/cache_{n_binary_op}.npz")[str(n_binary_op1)]
+    # check_change_x  :
     with objmode(data="int64[:]"):
         cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
         data = np.load(f"{cache_path}/num_to_index_{n_binary_op}.npz")[str(n_binary_op1)]
-    num_to_index = np.full((np.max(data) + 1), Nan_number, dtype="int64")
+    num_to_index = np.full((np.max(data) + 1), int_nan, dtype="int64")
     for i, j in enumerate(np.sort(data)):
         num_to_index[j] = i
     # num_to_index={j:i for i,j in enumerate(data)}
-    with objmode(need_calc_change_x="boolean[:,:]"):
+
+    with objmode(data="int64[:,:]"):
         cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
-        need_calc_change_x = np.load(f"{cache_path}/need_calc_change_x_{n_binary_op}.npz")["arr_0"]
-    return preprocessed_results, num_to_index, need_calc_change_x
+        data = np.load(f"{cache_path}/cache_{n_binary_op}.npz")[str(n_binary_op1)]
+    preprocessed_results = dict()
+    for op in [-1, -2, -3, -4, -5]:
+        index = np.arange(data.shape[0])[data[:, 2] == op]
+        index = index[np.argsort(data[index, 0])]
+        preprocessed_results[op] = data[index, :2]
+
+    with objmode(need_calc="bool[:]"):
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        need_calc = np.load(f"{cache_path}/need_calc_{n_binary_op}.npz")["arr_0"]
+
+    with objmode(check_change_x="int8[:,:,:]"):
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        check_change_x = np.load(f"{cache_path}/check_change_x_ones_{n_binary_op}.npz")["arr_0"]
+
+    return preprocessed_results, num_to_index, need_calc, check_change_x
 
 
 @njit(error_model="numpy")
-def load_max_id_need_calc():
-    # max_id_need_calc  :  [n_binary_op]->max_eq_id
-    with objmode(max_id_need_calc="int64[:]"):
+def load_preprocessed_arr_len():
+    with objmode(preprocessed_arr_len="int64[:]"):
         cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
-        max_id_need_calc = np.load(f"{cache_path}/max_id_need_calc.npy")
-    return max_id_need_calc
+        preprocessed_arr_len = np.load(f"{cache_path}/arr_len.npy")
+    return preprocessed_arr_len
 
 
 @njit(error_model="numpy")
 def make_eq_id(n_binary_op1, info):
+    int_nan = -100
     n_binary_op = info.shape[0] - 1
-    arg_sort = np.argsort(info)
-    mask_1 = np.ones(n_binary_op + 1, dtype="bool")
-    mask_2 = info[n_binary_op1 + 1 :] != 0
-    for i in range(n_binary_op, 0, -1):
-        index_f, index_b = arg_sort[i - 1], arg_sort[i]
-        if info[index_f] == info[index_b]:
-            if index_f > index_b:
-                arg_sort[i - 1], arg_sort[i] = index_b, index_f
-                index_f, index_b = arg_sort[i - 1], arg_sort[i]
-            mask_1[i] = False
-            if n_binary_op1 < index_f:
-                mask_2[index_b - n_binary_op1 - 1] = False
-    if info[arg_sort[0]] == 0:
-        mask_1[0] = False
-    retuen_arr = np.empty(n_binary_op + 1, dtype="int8")
-    retuen_arr[np.sort(arg_sort[mask_1])] = np.arange(1, np.sum(mask_1) + 1)
-    for i in np.arange(n_binary_op + 1)[~mask_1]:
-        retuen_arr[arg_sort[i]] = retuen_arr[arg_sort[i - 1]]
-    changed_back_eq_x_num = make_change_x_id(retuen_arr[n_binary_op1 + 1 :][mask_2], n_binary_op + 1)
-    shuffled_eq_x_num = make_change_x_id(np.argsort(arg_sort[mask_1]) + 1, np.sum(mask_1))  # ok
-    return changed_back_eq_x_num, shuffled_eq_x_num
+    unique = np.unique(info)
+    len_unique = unique.shape[0]
+    arange = np.arange(len_unique)
+    unique_arr = np.empty(len_unique + 1, dtype="int64")
+    dict_x_to_num = np.full((len_unique, 2), int_nan, dtype="int8")
+    retuen_arr = np.empty(n_binary_op - n_binary_op1, dtype="int8")
+
+    n = 1
+    for i in info[: n_binary_op1 + 1]:
+        if i != 0:
+            index = arange[unique == i][0]
+            if dict_x_to_num[index, 0] == int_nan:
+                unique_arr[n] = i
+                dict_x_to_num[index, 0] = n
+                n += 1
+    k = 0
+    for i in info[n_binary_op1 + 1 :]:
+        if i != 0:
+            index = arange[unique == i][0]
+            if dict_x_to_num[index, 1] == int_nan:
+                if dict_x_to_num[index, 0] == int_nan:
+                    unique_arr[n] = i
+                    num = n
+                    n += 1
+                else:
+                    num = dict_x_to_num[index, 0]
+                dict_x_to_num[index, 1] = num
+                retuen_arr[k] = num
+                k += 1
+    return unique_arr[:n], make_change_x_id(retuen_arr[:k], n_binary_op + 1)
 
 
 @njit(error_model="numpy")
@@ -516,7 +541,7 @@ def sub_loop_non_op(
     min_index_list,
     border_list,
 ):
-    Nan_number = -100
+    int_nan = -100
     used_eq_dict = dict()
     used_unit_dict = dict()
     used_shape_id_dict = dict()
@@ -600,9 +625,9 @@ def sub_loop_binary_op(
     used_info_dict,
     progress,
 ):
-    Nan_number = -100
+    int_nan = -100
 
-    max_id_need_calc = load_max_id_need_calc()
+    preprocessed_arr_len = load_preprocessed_arr_len()
     num_threads = save_score_list.shape[0]
     max_n_op = (save_eq_list.shape[2] - 1) // 2
     n_op2 = n_op - 1 - n_op1
@@ -619,103 +644,106 @@ def sub_loop_binary_op(
         for n_binary_op2 in range(n_op2 + 1):
             if not n_binary_op2 in list(used_eq_dict[n_op2].keys()):
                 continue
-            use_eq_arr2 = used_eq_dict[n_op2][n_binary_op2]
-            use_unit_arr2 = used_unit_dict[n_op2][n_binary_op2]
-            use_shape_id_arr2 = used_shape_id_dict[n_op2][n_binary_op2]
-            use_info_arr2 = used_info_dict[n_op2][n_binary_op2]
-            if use_eq_arr2.shape[0] == 0:
-                continue
-            n_binary_op = n_binary_op1 + n_binary_op2 + 1
-            now_use_binary_op = use_binary_op.copy()
-            if n_binary_op1 < n_binary_op2:
-                for i in [-1, -2, -3]:
-                    if i in now_use_binary_op:
-                        now_use_binary_op.remove(i)
-            preprocessed_results, num_to_index, need_calc_change_x = load_preprocessed_results(
-                n_binary_op, n_binary_op1
-            )
-            len_units = use_unit_arr1[0].shape[0]
-            len_eq_arr1 = use_eq_arr1.shape[0]
-            len_eq_arr2 = use_eq_arr2.shape[0]
-            if max_n_op != n_op:
-                len_used_arr = len(now_use_binary_op) * ((len_eq_arr1 * len_eq_arr2) // num_threads + 1)
-            else:  # max_n_op==n_op:
-                len_used_arr = 0
-            used_eq_arr_thread = np.full((num_threads, len_used_arr, 2 * n_op + 1), Nan_number, dtype="int8")
-            used_unit_arr_thread = np.full((num_threads, len_used_arr, len_units), Nan_number, dtype="int64")
-            used_shape_id_arr_thread = np.full((num_threads, len_used_arr), Nan_number, dtype="int64")
-            used_info_arr_thread = np.full((num_threads, len_used_arr, n_binary_op + 1), Nan_number, dtype="int64")
-            last_index_thread = np.zeros(num_threads, dtype="int64")
-            loop = len_eq_arr1 * len_eq_arr2
-            for thread_id in prange(num_threads):
-                score_list = save_score_list[thread_id].copy()
-                eq_list = save_eq_list[thread_id].copy()
-                min_index = min_index_list[thread_id]
-                border1, border2 = border_list[thread_id]
-                last_index = 0
-                equation = np.empty((2 * n_op + 1), dtype="int8")
-                info = np.empty((n_binary_op + 1), dtype="int64")
-                for i in range(thread_id, loop, num_threads):
-                    id1 = i % len_eq_arr1
-                    i //= len_eq_arr1
-                    id2 = i % len_eq_arr2
-                    shape_id1 = use_shape_id_arr1[id1]
-                    shape_id2 = use_shape_id_arr2[id2]
-                    info[: n_binary_op1 + 1] = use_info_arr1[id1]
-                    info[n_binary_op1 + 1 :] = use_info_arr2[id2]
-                    changed_back_eq_x_num, shuffled_eq_x_num = make_eq_id(n_binary_op1, info)
-                    eq_id_binary_op_arr = preprocessed_results[
-                        shape_id1, shape_id2, num_to_index[changed_back_eq_x_num]
-                    ]
-                    for merge_op in now_use_binary_op:
-                        eq_id = eq_id_binary_op_arr[merge_op + 4]
-                        if eq_id != Nan_number:
-                            if need_calc_change_x[eq_id, shuffled_eq_x_num]:
-                                unit1 = use_unit_arr1[id1]
-                                unit2 = use_unit_arr2[id2]
-                                if merge_op in [-1, -2]:
-                                    if np.any(unit1 != unit2):
-                                        continue
-                                eq1 = use_eq_arr1[id1]
-                                eq2 = use_eq_arr2[id2]
-                                len_eq1 = np.sum(eq1 != Nan_number)
-                                len_eq2 = np.sum(eq2 != Nan_number)
-                                equation[:len_eq1] = eq1[:len_eq1]
-                                equation[len_eq1 : len_eq1 + len_eq2] = eq2[:len_eq2]
-                                equation[len_eq1 + len_eq2] = merge_op
-                                equation[len_eq1 + len_eq2 + 1 :] = Nan_number
-                                ans_num = calc_RPN(x, equation, fmax_max, fmax_min)
-                                if not np.isnan(ans_num[0]):
-                                    if max_n_op != n_op:
-                                        match merge_op:
-                                            case -1:  # +
-                                                used_unit_arr_thread[thread_id, last_index] = unit1
-                                            case -2:  # -
-                                                used_unit_arr_thread[thread_id, last_index] = unit1
-                                            case -3:  # *
-                                                used_unit_arr_thread[thread_id, last_index] = unit1 + unit2
-                                            case -4:  # /
-                                                used_unit_arr_thread[thread_id, last_index] = unit1 - unit2
-                                        used_eq_arr_thread[thread_id, last_index] = equation
-                                        used_shape_id_arr_thread[thread_id, last_index] = eq_id
-                                        used_info_arr_thread[thread_id, last_index] = info
-                                        last_index += 1
-                                    if max_id_need_calc[n_binary_op] > eq_id:
-                                        score1, score2 = model_score(ans_num, y)
-                                        if not (np.isnan(score1) or np.isnan(score2)):
-                                            if score1 > border1:
-                                                score_list[min_index, 0] = score1
-                                                score_list[min_index, 1] = score2
-                                                eq_list[min_index, : 2 * n_op + 1] = equation
-                                                min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                                if border1 > min_num1:
-                                                    border1 = min_num1
-                                                    border2 = min_num2
-                                                elif border1 == min_num1:
-                                                    if border2 > min_num2:
-                                                        border2 = min_num2
-                                            elif score1 == border1:
-                                                if score2 > border2:
+            if n_binary_op1 >= n_binary_op2:
+                use_eq_arr2 = used_eq_dict[n_op2][n_binary_op2]
+                use_unit_arr2 = used_unit_dict[n_op2][n_binary_op2]
+                use_shape_id_arr2 = used_shape_id_dict[n_op2][n_binary_op2]
+                use_info_arr2 = used_info_dict[n_op2][n_binary_op2]
+                if use_eq_arr2.shape[0] == 0:
+                    continue
+                n_binary_op = n_binary_op1 + n_binary_op2 + 1
+                now_use_binary_op = use_binary_op.copy()
+                preprocessed_results, num_to_index, preprocessed_need_calc, check_change_x = load_preprocessed_results(
+                    n_binary_op, n_binary_op1
+                )
+                len_units = use_unit_arr1[0].shape[0]
+                len_eq_arr1 = use_eq_arr1.shape[0]
+                len_eq_arr2 = use_eq_arr2.shape[0]
+                if max_n_op != n_op:
+                    len_used_arr = len(now_use_binary_op) * ((len_eq_arr1 * len_eq_arr2) // num_threads + 1)
+                else:  # max_n_op==n_op:
+                    len_used_arr = 0
+                used_eq_arr_thread = np.full((num_threads, len_used_arr, 2 * n_op + 1), int_nan, dtype="int8")
+                used_unit_arr_thread = np.full((num_threads, len_used_arr, len_units), int_nan, dtype="int64")
+                used_shape_id_arr_thread = np.full((num_threads, len_used_arr), int_nan, dtype="int64")
+                used_info_arr_thread = np.full((num_threads, len_used_arr, n_binary_op + 1), int_nan, dtype="int64")
+                last_index_thread = np.zeros(num_threads, dtype="int64")
+                loop = len_eq_arr1 * len_eq_arr2
+                preprocessed_len1 = preprocessed_arr_len[n_binary_op1]
+                preprocessed_len2 = preprocessed_arr_len[n_binary_op2]
+                for thread_id in prange(num_threads):
+                    score_list = save_score_list[thread_id].copy()
+                    eq_list = save_eq_list[thread_id].copy()
+                    min_index = min_index_list[thread_id]
+                    border1, border2 = border_list[thread_id]
+                    last_index = 0
+                    equation = np.empty((2 * n_op + 1), dtype="int8")
+                    info = np.empty((n_binary_op + 1), dtype="int64")
+                    for i in range(thread_id, loop, num_threads):
+                        id1 = i % len_eq_arr1
+                        i //= len_eq_arr1
+                        id2 = i % len_eq_arr2
+                        shape_id1 = use_shape_id_arr1[id1]
+                        shape_id2 = use_shape_id_arr2[id2]
+                        info[: n_binary_op1 + 1] = use_info_arr1[id1]
+                        info[n_binary_op1 + 1 :] = use_info_arr2[id2]
+                        unique_arr, changed_back_eq_x_num = make_eq_id(n_binary_op1, info)
+                        changed_back_eq_x_index = num_to_index[changed_back_eq_x_num]
+                        id = (changed_back_eq_x_index * preprocessed_len2 + shape_id2) * preprocessed_len1 + shape_id1
+                        for merge_op in now_use_binary_op:
+                            arr = preprocessed_results[merge_op]
+                            eq_id = int_nan
+                            for i in range(arr.shape[0]):
+                                if id == arr[i, 0]:
+                                    eq_id = arr[i, 1]
+                                    break
+                                elif id < arr[i, 0]:
+                                    break
+                            if eq_id != int_nan:
+                                need_save = True
+                                for k in range(check_change_x.shape[1]):
+                                    if check_change_x[eq_id, k, 0] == int_nan:
+                                        break
+                                    if (
+                                        unique_arr[check_change_x[eq_id, k, 0]]
+                                        > unique_arr[check_change_x[eq_id, k, 1]]
+                                    ):
+                                        need_save = False
+                                        break
+                                if need_save:
+                                    unit1 = use_unit_arr1[id1]
+                                    unit2 = use_unit_arr2[id2]
+                                    if merge_op in [-1, -2]:
+                                        if np.any(unit1 != unit2):
+                                            continue
+                                    eq1 = use_eq_arr1[id1]
+                                    eq2 = use_eq_arr2[id2]
+                                    len_eq1 = count_True(eq1, 2, int_nan)  # 2 -> lambda x: x != border
+                                    len_eq2 = count_True(eq2, 2, int_nan)  # 2 -> lambda x: x != border
+                                    equation[:len_eq1] = eq1[:len_eq1]
+                                    equation[len_eq1 : len_eq1 + len_eq2] = eq2[:len_eq2]
+                                    equation[len_eq1 + len_eq2] = merge_op
+                                    equation[len_eq1 + len_eq2 + 1 :] = int_nan
+                                    ans_num = calc_RPN(x, equation, fmax_max, fmax_min)
+                                    if not np.isnan(ans_num[0]):
+                                        if max_n_op != n_op:
+                                            match merge_op:
+                                                case -1:  # +
+                                                    used_unit_arr_thread[thread_id, last_index] = unit1
+                                                case -2:  # -
+                                                    used_unit_arr_thread[thread_id, last_index] = unit1
+                                                case -3:  # *
+                                                    used_unit_arr_thread[thread_id, last_index] = unit1 + unit2
+                                                case -4:  # /
+                                                    used_unit_arr_thread[thread_id, last_index] = unit1 - unit2
+                                            used_eq_arr_thread[thread_id, last_index] = equation
+                                            used_shape_id_arr_thread[thread_id, last_index] = eq_id
+                                            used_info_arr_thread[thread_id, last_index] = info
+                                            last_index += 1
+                                        if preprocessed_need_calc[eq_id]:
+                                            score1, score2 = model_score(ans_num, y)
+                                            if not (np.isnan(score1) or np.isnan(score2)):
+                                                if score1 > border1:
                                                     score_list[min_index, 0] = score1
                                                     score_list[min_index, 1] = score2
                                                     eq_list[min_index, : 2 * n_op + 1] = equation
@@ -726,66 +754,80 @@ def sub_loop_binary_op(
                                                     elif border1 == min_num1:
                                                         if border2 > min_num2:
                                                             border2 = min_num2
-                    progress.update(1)
-                save_score_list[thread_id] = score_list
-                save_eq_list[thread_id] = eq_list
-                min_index_list[thread_id] = min_index
-                border_list[thread_id, 0] = border1
-                border_list[thread_id, 1] = border2
+                                                elif score1 == border1:
+                                                    if score2 > border2:
+                                                        score_list[min_index, 0] = score1
+                                                        score_list[min_index, 1] = score2
+                                                        eq_list[min_index, : 2 * n_op + 1] = equation
+                                                        min_num1, min_num2, min_index = argmin_and_min(score_list)
+                                                        if border1 > min_num1:
+                                                            border1 = min_num1
+                                                            border2 = min_num2
+                                                        elif border1 == min_num1:
+                                                            if border2 > min_num2:
+                                                                border2 = min_num2
+                        progress.update(1)
+                    save_score_list[thread_id] = score_list
+                    save_eq_list[thread_id] = eq_list
+                    min_index_list[thread_id] = min_index
+                    border_list[thread_id, 0] = border1
+                    border_list[thread_id, 1] = border2
+                    if max_n_op != n_op:
+                        last_index_thread[thread_id] = last_index
+
+                if num_threads != 1:
+                    border1 = np.partition(save_score_list[:, :, 0].ravel(), -how_many_to_save)[-how_many_to_save]
+                    n_save_same_score1 = how_many_to_save - np.sum(save_score_list[:, :, 0] > border1)
+                    border2 = np.sort(save_score_list[:, :, 1].ravel()[save_score_list[:, :, 0].ravel() == border1])[
+                        ::-1
+                    ][n_save_same_score1 - 1]
+                    border_list[:, 0] = border1
+                    border_list[:, 1] = border2
+
                 if max_n_op != n_op:
-                    last_index_thread[thread_id] = last_index
-
-            if num_threads != 1:
-                border1 = np.partition(save_score_list[:, :, 0].ravel(), -how_many_to_save)[-how_many_to_save]
-                n_save_same_score1 = how_many_to_save - np.sum(save_score_list[:, :, 0] > border1)
-                border2 = np.sort(save_score_list[:, :, 1].ravel()[save_score_list[:, :, 0].ravel() == border1])[::-1][
-                    n_save_same_score1 - 1
-                ]
-                border_list[:, 0] = border1
-                border_list[:, 1] = border2
-
-            if max_n_op != n_op:
-                sum_last_index = np.sum(last_index_thread)
-                used_eq_arr = np.full((sum_last_index, 2 * n_op + 1), Nan_number, dtype="int8")
-                used_unit_arr = np.full((sum_last_index, len_units), Nan_number, dtype="int64")
-                used_shape_id_arr = np.full((sum_last_index), Nan_number, dtype="int64")
-                used_info_arr = np.full((sum_last_index, n_binary_op + 1), Nan_number, dtype="int64")
-                for thread_id in prange(num_threads):
-                    before_index = np.sum(last_index_thread[:thread_id])
-                    used_eq_arr[before_index : before_index + last_index_thread[thread_id]] = used_eq_arr_thread[
-                        thread_id, : last_index_thread[thread_id]
-                    ]
-                    used_unit_arr[before_index : before_index + last_index_thread[thread_id]] = used_unit_arr_thread[
-                        thread_id, : last_index_thread[thread_id]
-                    ]
-                    used_shape_id_arr[before_index : before_index + last_index_thread[thread_id]] = (
-                        used_shape_id_arr_thread[thread_id, : last_index_thread[thread_id]]
-                    )
-                    used_info_arr[before_index : before_index + last_index_thread[thread_id]] = used_info_arr_thread[
-                        thread_id, : last_index_thread[thread_id]
-                    ]
-                if n_op in used_eq_dict:
-                    if n_binary_op in used_eq_dict[n_op]:
-                        used_eq_dict[n_op][n_binary_op] = np.concatenate((used_eq_dict[n_op][n_binary_op], used_eq_arr))
-                        used_unit_dict[n_op][n_binary_op] = np.concatenate(
-                            (used_unit_dict[n_op][n_binary_op], used_unit_arr)
+                    sum_last_index = np.sum(last_index_thread)
+                    used_eq_arr = np.full((sum_last_index, 2 * n_op + 1), int_nan, dtype="int8")
+                    used_unit_arr = np.full((sum_last_index, len_units), int_nan, dtype="int64")
+                    used_shape_id_arr = np.full((sum_last_index), int_nan, dtype="int64")
+                    used_info_arr = np.full((sum_last_index, n_binary_op + 1), int_nan, dtype="int64")
+                    for thread_id in prange(num_threads):
+                        before_index = np.sum(last_index_thread[:thread_id])
+                        used_eq_arr[before_index : before_index + last_index_thread[thread_id]] = used_eq_arr_thread[
+                            thread_id, : last_index_thread[thread_id]
+                        ]
+                        used_unit_arr[before_index : before_index + last_index_thread[thread_id]] = (
+                            used_unit_arr_thread[thread_id, : last_index_thread[thread_id]]
                         )
-                        used_shape_id_dict[n_op][n_binary_op] = np.concatenate(
-                            (used_shape_id_dict[n_op][n_binary_op], used_shape_id_arr)
+                        used_shape_id_arr[before_index : before_index + last_index_thread[thread_id]] = (
+                            used_shape_id_arr_thread[thread_id, : last_index_thread[thread_id]]
                         )
-                        used_info_dict[n_op][n_binary_op] = np.concatenate(
-                            (used_info_dict[n_op][n_binary_op], used_info_arr)
+                        used_info_arr[before_index : before_index + last_index_thread[thread_id]] = (
+                            used_info_arr_thread[thread_id, : last_index_thread[thread_id]]
                         )
+                    if n_op in used_eq_dict:
+                        if n_binary_op in used_eq_dict[n_op]:
+                            used_eq_dict[n_op][n_binary_op] = np.concatenate(
+                                (used_eq_dict[n_op][n_binary_op], used_eq_arr)
+                            )
+                            used_unit_dict[n_op][n_binary_op] = np.concatenate(
+                                (used_unit_dict[n_op][n_binary_op], used_unit_arr)
+                            )
+                            used_shape_id_dict[n_op][n_binary_op] = np.concatenate(
+                                (used_shape_id_dict[n_op][n_binary_op], used_shape_id_arr)
+                            )
+                            used_info_dict[n_op][n_binary_op] = np.concatenate(
+                                (used_info_dict[n_op][n_binary_op], used_info_arr)
+                            )
+                        else:
+                            used_eq_dict[n_op][n_binary_op] = used_eq_arr
+                            used_unit_dict[n_op][n_binary_op] = used_unit_arr
+                            used_shape_id_dict[n_op][n_binary_op] = used_shape_id_arr
+                            used_info_dict[n_op][n_binary_op] = used_info_arr
                     else:
-                        used_eq_dict[n_op][n_binary_op] = used_eq_arr
-                        used_unit_dict[n_op][n_binary_op] = used_unit_arr
-                        used_shape_id_dict[n_op][n_binary_op] = used_shape_id_arr
-                        used_info_dict[n_op][n_binary_op] = used_info_arr
-                else:
-                    used_eq_dict[n_op] = {n_binary_op: used_eq_arr}
-                    used_unit_dict[n_op] = {n_binary_op: used_unit_arr}
-                    used_shape_id_dict[n_op] = {n_binary_op: used_shape_id_arr}
-                    used_info_dict[n_op] = {n_binary_op: used_info_arr}
+                        used_eq_dict[n_op] = {n_binary_op: used_eq_arr}
+                        used_unit_dict[n_op] = {n_binary_op: used_unit_arr}
+                        used_shape_id_dict[n_op] = {n_binary_op: used_shape_id_arr}
+                        used_info_dict[n_op] = {n_binary_op: used_info_arr}
 
 
 @njit(error_model="numpy")
@@ -816,7 +858,7 @@ def sub_loop_unary_op(
     used_info_dict,
     progress,
 ):
-    Nan_number = -100
+    int_nan = -100
     num_threads = save_score_list.shape[0]
     max_n_op = (save_eq_list.shape[2] - 1) // 2
     x_max = x.shape[0]
@@ -830,10 +872,10 @@ def sub_loop_unary_op(
             len_used_arr = len(use_unary_op) * (use_eq_arr.shape[0] // num_threads + 1)
         else:  # max_n_op==n_op:
             len_used_arr = 0
-        used_eq_arr_thread = np.full((num_threads, len_used_arr, 2 * n_op + 1), Nan_number, dtype="int8")
-        used_unit_arr_thread = np.full((num_threads, len_used_arr, len_units), Nan_number, dtype="int64")
-        used_shape_id_arr_thread = np.full((num_threads, len_used_arr), Nan_number, dtype="int64")
-        used_info_arr_thread = np.full((num_threads, len_used_arr, 1), Nan_number, dtype="int64")
+        used_eq_arr_thread = np.full((num_threads, len_used_arr, 2 * n_op + 1), int_nan, dtype="int8")
+        used_unit_arr_thread = np.full((num_threads, len_used_arr, len_units), int_nan, dtype="int64")
+        used_shape_id_arr_thread = np.full((num_threads, len_used_arr), int_nan, dtype="int64")
+        used_info_arr_thread = np.full((num_threads, len_used_arr, 1), int_nan, dtype="int64")
         last_index_thread = np.zeros(num_threads, dtype="int64")
         loop = use_eq_arr.shape[0]
         for thread_id in prange(num_threads):
@@ -845,19 +887,14 @@ def sub_loop_unary_op(
             equation = np.empty((2 * n_op + 1), dtype="int8")
             for i in range(thread_id, loop, num_threads):
                 base_eq = use_eq_arr[i]
-                len_base_eq = np.sum(base_eq != Nan_number)
+                len_base_eq = count_True(base_eq, 2, int_nan)  # 2 -> lambda x: x != border
                 base_unit = use_unit_arr[i]
                 equation[:len_base_eq] = base_eq[:len_base_eq]
-                equation[len_base_eq + 1 :] = Nan_number
+                equation[len_base_eq + 1 :] = int_nan
                 for op in use_unary_op:
                     checked = False
                     unit = base_unit
                     match op:
-                        case -5:  # *-1
-                            # if equation[len_base_eq-1]!=-5:#*-1
-                            # checked=True
-                            # unit=base_unit#units更新なし
-                            None  # 存在意義が分からない
                         case -6:  # ^-1
                             # if equation[len_base_eq-1]!=-6:#^-1
                             # checked=True
@@ -889,31 +926,31 @@ def sub_loop_unary_op(
                                 unit = 6 * base_unit  # units更新
                         case -13:  # exp
                             # exp,exp-,log,sin,cos
-                            if check_eq(base_eq, [-13, -14, -15, -16, -17]):
+                            if check_eq(base_eq, np.array([-13, -14, -15, -16, -17])):
                                 if np.all(base_unit == 0):  # 無次元に制限
                                     checked = True
                                     # unit=base_unit
                         case -14:  # exp-
                             # exp,exp-,log,sin,cos
-                            if check_eq(base_eq, [-13, -14, -15, -16, -17]):
+                            if check_eq(base_eq, np.array([-13, -14, -15, -16, -17])):
                                 if np.all(base_unit == 0):  # 無次元に制限
                                     checked = True
                                     # unit=base_unit
                         case -15:  # log
                             # exp,exp-,log,sin,cos
-                            if check_eq(base_eq, [-13, -14, -15, -16, -17]):
+                            if check_eq(base_eq, np.array([-13, -14, -15, -16, -17])):
                                 if np.all(base_unit == 0):  # 無次元に制限
                                     checked = True
                                     # unit=base_unit
                         case -16:  # sin
                             # exp,exp-,log,sin,cos
-                            if check_eq(base_eq, [-13, -14, -15, -16, -17]):
+                            if check_eq(base_eq, np.array([-13, -14, -15, -16, -17])):
                                 if np.all(base_unit == 0):  # 無次元に制限
                                     checked = True
                                     # unit=base_unit
                         case -17:  # cos
                             # exp,exp-,log,sin,cos
-                            if check_eq(base_eq, [-13, -14, -15, -16, -17]):
+                            if check_eq(base_eq, np.array([-13, -14, -15, -16, -17])):
                                 if np.all(base_unit == 0):  # 無次元に制限
                                     checked = True
                                     # unit=base_unit
@@ -975,10 +1012,10 @@ def sub_loop_unary_op(
 
         if max_n_op != n_op:
             sum_last_index = np.sum(last_index_thread)
-            used_eq_arr = np.full((sum_last_index, 2 * n_op + 1), Nan_number, dtype="int8")
-            used_unit_arr = np.full((sum_last_index, len_units), Nan_number, dtype="int64")
-            used_shape_id_arr = np.full((sum_last_index), Nan_number, dtype="int64")
-            used_info_arr = np.full((sum_last_index, 1), Nan_number, dtype="int64")
+            used_eq_arr = np.full((sum_last_index, 2 * n_op + 1), int_nan, dtype="int8")
+            used_unit_arr = np.full((sum_last_index, len_units), int_nan, dtype="int64")
+            used_shape_id_arr = np.full((sum_last_index), int_nan, dtype="int64")
+            used_info_arr = np.full((sum_last_index, 1), int_nan, dtype="int64")
             for thread_id in prange(num_threads):
                 before_index = np.sum(last_index_thread[:thread_id])
                 used_eq_arr[before_index : before_index + last_index_thread[thread_id]] = used_eq_arr_thread[
