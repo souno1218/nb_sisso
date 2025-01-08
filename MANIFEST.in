@@ -1,1 +1,1 @@
-recursive-include src/nb_sisso/cache_folder cache_*.npz num_to_index_*.npz need_calc_change_x_*.npz　max_id_need_calc.npy
+recursive-include src/nb_sisso/cache_folder arr_len.npy cache_*.npz check_change_x_ones_*.npz need_calc_*.npz num_to_index_*.npz
