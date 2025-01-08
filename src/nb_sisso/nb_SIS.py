@@ -410,7 +410,8 @@ def loop_counter_binary(n_op1, n_op2, used_eq_dict):
             len_use_eq_arr1 = used_eq_dict[n_op1][n_binary_op1].shape[0]
             for n_binary_op2 in range(n_op2 + 1):
                 if n_binary_op2 in list(used_eq_dict[n_op2].keys()):
-                    loop += len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
+                    if n_binary_op1 >= n_binary_op2:
+                        loop += len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
     return loop
 
 
