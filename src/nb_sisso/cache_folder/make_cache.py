@@ -715,7 +715,7 @@ def make_unique_equations_thread(
                         if save_similar_num[0, 0] == int_nan:  # any_isinf, all_const
                             if count_True(equation, 5, 0) != 0:  # likely (a-a), not (1+1) ,  lambda x: x > border
                                 is_save, is_calc = False, False
-                            elif np.all(save_similar_num[1] == 0):  # all_zero
+                            elif is_all_zero(save_similar_num[1], atol=0):  # all_zero
                                 is_save, is_calc = False, False
                             else:  # (1+1)
                                 is_calc = False

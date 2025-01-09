@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
-from .utils import jit_cov, quartile_deviation, nb_allclose, nb_isclose
+from .utils import jit_cov, quartile_deviation, isclose_arr, isclose
 from numba import njit
 
 # https://qiita.com/m1t0/items/06f2d07e626d1c4733fd
@@ -19,31 +19,63 @@ def LDA_2d(X, y):
 
 @njit(error_model="numpy", fastmath=True)
 def sub_LDA_2d_fit(X, y):
-    pi_T = np.sum(y) + 1e-14
-    pi_F = np.sum(~y) + 1e-14
-    classT_var_0, classT_var_1, classT_cov = jit_cov(X[y], ddof=0)
-    classF_var_0, classF_var_1, classF_cov = jit_cov(X[~y], ddof=0)
+    n_samples = y.shape[0]
+    pi_T, pi_F = np.sum(y), np.sum(~y)
+    mean_T0, mean_T1 = 0.0, 0.0
+    mean_F0, mean_F1 = 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            mean_T0 += X[i, 0]
+            mean_T1 += X[i, 1]
+        else:
+            mean_F0 += X[i, 0]
+            mean_F1 += X[i, 1]
+    mean_T0, mean_T1 = mean_T0 / pi_T, mean_T1 / pi_T
+    mean_F0, mean_F1 = mean_F0 / pi_F, mean_F1 / pi_F
+
+    sum_T0, sum_T1, sum_covT = 0.0, 0.0, 0.0
+    sum_F0, sum_F1, sum_covF = 0.0, 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sum_T0 += (X[i, 0] - mean_T0) ** 2
+            sum_T1 += (X[i, 1] - mean_T1) ** 2
+            sum_covT += (X[i, 0] - mean_T0) * (X[i, 1] - mean_T1)
+        else:
+            sum_F0 += (X[i, 0] - mean_F0) ** 2
+            sum_F1 += (X[i, 1] - mean_F1) ** 2
+            sum_covF += (X[i, 0] - mean_F0) * (X[i, 1] - mean_F1)
+
+    classT_var_0 = sum_T0 / pi_T  # ddof = 1
+    classT_var_1 = sum_T1 / pi_T
+    classT_cov = sum_covT / pi_T
+
+    classF_var_0 = sum_F0 / pi_F
+    classF_var_1 = sum_F1 / pi_F
+    classF_cov = sum_covF / pi_F
+
     var_0 = (pi_T * classT_var_0 + pi_F * classF_var_0) / (pi_T + pi_F)
     var_1 = (pi_T * classT_var_1 + pi_F * classF_var_1) / (pi_T + pi_F)
     cov = (pi_T * classT_cov + pi_F * classF_cov) / (pi_T + pi_F)
-    mean_T_0, mean_T_1 = np.mean(X[y, 0]), np.mean(X[y, 1])
-    mean_F_0, mean_F_1 = np.mean(X[~y, 0]), np.mean(X[~y, 1])
-    dmean_0, dmean_1 = mean_T_0 - mean_F_0, mean_T_1 - mean_F_1
-    c = (mean_F_0**2 - mean_T_0**2) * var_1 / 2 + (mean_F_1**2 - mean_T_1**2) * var_0 / 2
-    c += (mean_T_0 * mean_T_1 - mean_F_0 * mean_F_1) * cov
+    dmean_0, dmean_1 = mean_T0 - mean_F0, mean_T1 - mean_F1
+    c = (mean_F0**2 - mean_T0**2) * var_1 / 2 + (mean_F1**2 - mean_T1**2) * var_0 / 2
+    c += (mean_T0 * mean_T1 - mean_F0 * mean_F1) * cov
     c -= (var_0 * var_1 - cov**2) * (np.log(pi_F / pi_T))
     return var_0, var_1, cov, dmean_0, dmean_1, c
 
 
 @njit(error_model="numpy", fastmath=True)
 def sub_LDA_2d_score(X, y, var_0, var_1, cov, dmean_0, dmean_1, c):
+    n_samples = y.shape[0]
     a = dmean_0 * var_1 - dmean_1 * cov
     b = dmean_1 * var_0 - dmean_0 * cov
-    score = np.sum(((a * X[:, 0] + b * X[:, 1] + c) > 0) == y) / X.shape[0]
+    count = 0
+    for i in range(n_samples):
+        if ((a * X[i, 0] + b * X[i, 1] + c) > 0) == y[i]:
+            count += 1
+
+    score = count / n_samples
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
-    kl_d = (
-        (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2 + 1e-14) / 2
-    )
+    kl_d = (dmean_0**2 * var_1 + dmean_1**2 * var_0 - 2 * dmean_0 * dmean_1 * cov) / (var_0 * var_1 - cov**2) / 2
     return score, kl_d
 
 
@@ -60,28 +92,55 @@ def QDA_2d(X, y):
 
 @njit(error_model="numpy", fastmath=True)
 def sub_QDA_2d_fit(X, y):
-    classT_X = X[y]
-    classF_X = X[~y]
-    pi_T, pi_F = classT_X.shape[0] + 1e-14, classF_X.shape[0] + 1e-14
-    classT_var_1, classT_var_2, classT_cov = jit_cov(classT_X)
-    det_covT = classT_var_1 * classT_var_2 - classT_cov**2 + 1e-14
+    n_samples = y.shape[0]
+    pi_T, pi_F = np.sum(y), np.sum(~y)
+    mean_T0, mean_T1 = 0.0, 0.0
+    mean_F0, mean_F1 = 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            mean_T0 += X[i, 0]
+            mean_T1 += X[i, 1]
+        else:
+            mean_F0 += X[i, 0]
+            mean_F1 += X[i, 1]
+    mean_T0, mean_T1 = mean_T0 / pi_T, mean_T1 / pi_T
+    mean_F0, mean_F1 = mean_F0 / pi_F, mean_F1 / pi_F
 
-    classF_var_1, classF_var_2, classF_cov = jit_cov(classF_X)
-    det_covF = classF_var_1 * classF_var_2 - classF_cov**2 + 1e-14
+    sum_T0, sum_T1, sum_covT = 0.0, 0.0, 0.0
+    sum_F0, sum_F1, sum_covF = 0.0, 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sum_T0 += (X[i, 0] - mean_T0) ** 2
+            sum_T1 += (X[i, 1] - mean_T1) ** 2
+            sum_covT += (X[i, 0] - mean_T0) * (X[i, 1] - mean_T1)
+        else:
+            sum_F0 += (X[i, 0] - mean_F0) ** 2
+            sum_F1 += (X[i, 1] - mean_F1) ** 2
+            sum_covF += (X[i, 0] - mean_F0) * (X[i, 1] - mean_F1)
 
-    mean_T = np.array([np.mean(classT_X[:, 0]), np.mean(classT_X[:, 1])])
-    mean_F = np.array([np.mean(classF_X[:, 0]), np.mean(classF_X[:, 1])])
+    classT_var_0 = sum_T0 / (pi_T - 1)  # ddof = 1
+    classT_var_1 = sum_T1 / (pi_T - 1)
+    classT_cov = sum_covT / (pi_T - 1)
+    det_covT = classT_var_0 * classT_var_1 - classT_cov**2
+
+    classF_var_0 = sum_F0 / (pi_F - 1)
+    classF_var_1 = sum_F1 / (pi_F - 1)
+    classF_cov = sum_covF / (pi_F - 1)
+    det_covF = classF_var_0 * classF_var_1 - classF_cov**2
+
     return (
         pi_T,
         pi_F,
+        classT_var_0,
         classT_var_1,
-        classT_var_2,
         classT_cov,
+        classF_var_0,
         classF_var_1,
-        classF_var_2,
         classF_cov,
-        mean_T,
-        mean_F,
+        mean_T0,
+        mean_T1,
+        mean_F0,
+        mean_F1,
         det_covT,
         det_covF,
     )
@@ -93,44 +152,42 @@ def sub_QDA_2d_score(
     y,
     pi_T,
     pi_F,
+    classT_var_0,
     classT_var_1,
-    classT_var_2,
     classT_cov,
+    classF_var_0,
     classF_var_1,
-    classF_var_2,
     classF_cov,
-    mean_T,
-    mean_F,
+    mean_T0,
+    mean_T1,
+    mean_F0,
+    mean_F1,
     det_covT,
     det_covF,
 ):
-    target_x_1 = X - mean_T
-    target_x_2 = X - mean_F
-    value1 = (
-        classT_var_2 * target_x_1[:, 0] ** 2
-        + classT_var_1 * target_x_1[:, 1] ** 2
-        - 2 * classT_cov * target_x_1[:, 0] * target_x_1[:, 1]
-    )
-    value1 /= det_covT
-    value2 = (
-        classF_var_2 * target_x_2[:, 0] ** 2
-        + classF_var_1 * target_x_2[:, 1] ** 2
-        - 2 * classF_cov * target_x_2[:, 0] * target_x_2[:, 1]
-    )
-    value2 /= det_covF
-    value3 = 2 * np.log(pi_T / pi_F) - np.log(np.abs(det_covT / det_covF) + 1e-14)
-    value = -value1 + value2 + value3
-    score = np.sum((value > 0) == y) / X.shape[0]
+    n_samples = y.shape[0]
+    count = 0
+    value3 = 2 * np.log(pi_T / pi_F) - np.log(np.abs(det_covT / det_covF))
+    for i in range(n_samples):
+        value1 = classT_var_1 * (X[i, 0] - mean_T0) ** 2
+        value1 += classT_var_0 * (X[i, 1] - mean_T1) ** 2
+        value1 -= 2 * classT_cov * (X[i, 0] - mean_T0) * (X[i, 1] - mean_T1)
+        value1 /= det_covT
+        value2 = classF_var_1 * (X[i, 0] - mean_F0) ** 2
+        value2 += classF_var_0 * (X[i, 1] - mean_F1) ** 2
+        value2 -= 2 * classF_cov * (X[i, 0] - mean_F0) * (X[i, 1] - mean_F1)
+        value2 /= det_covF
+        value = -value1 + value2 + value3
+        if (value > 0) == y[i]:
+            count += 1
 
+    score = count / n_samples
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
-    kl_d = np.log(np.abs(det_covF / det_covT + 1e-14)) / 2 - 1
-    kl_d += (classF_var_2 * classT_var_1 + classF_var_1 * classT_var_2 - 2 * classT_cov * classF_cov) / det_covF / 2
-    dmean = mean_T - mean_F
-    kl_d += (
-        (dmean[0] ** 2 * classF_var_2 + dmean[1] ** 2 * classF_var_1 - 2 * dmean[0] * dmean[1] * classF_cov)
-        / det_covF
-        / 2
-    )
+    kl_d = (mean_T0 - mean_F0) ** 2 * classF_var_1 + (mean_T1 - mean_F1) ** 2 * classF_var_0
+    kl_d -= 2 * (mean_T0 - mean_F0) * (mean_T1 - mean_F1) * classF_cov
+    kl_d /= det_covF * 2
+    kl_d += np.log(np.abs(det_covF / det_covT)) / 2 - 1
+    kl_d += (classF_var_1 * classT_var_0 + classF_var_0 * classT_var_1 - 2 * classT_cov * classF_cov) / det_covF / 2
     return score, kl_d
 
 
@@ -450,20 +507,36 @@ def make_sub_WNN_2d_score(p=2, name=None):
 # clf = KNeighborsClassifier(n_neighbors=t.shape[0]-1,weights=lambda d: 1/d**2)
 # from sklearn.model_selection import LeaveOneOut
 # LeaveOneOutCV
-@njit(error_model="numpy")
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
 def WGNN_2d(X, y):
     n_samples = y.shape[0]
-    X[:, 0] *= quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
-    d_2 = np.empty((n_samples, n_samples), dtype="float64")
+    bias = quartile_deviation(X[:, 1]) / quartile_deviation(X[:, 0])
+    entropy = 0.0
+    count = 0
     for i in range(n_samples):
-        d_2[i, i] = 0
-        d_2[i, i + 1 :] = (X[i + 1 :, 0] - X[i, 0]) ** 2 + (X[i + 1 :, 1] - X[i, 1]) ** 2
-        d_2[i + 1 :, i] = d_2[i, i + 1 :]
-    w = np.exp(-d_2 * n_samples / (2 * np.sum(d_2, axis=0)))
-    p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
-    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
-    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-    return count, -entropy
+        sum = 0.0
+        for j in range(n_samples):
+            if i != j:
+                sum += (bias * (X[j, 0] - X[i, 0]) ** 2) + (X[j, 1] - X[i, 1]) ** 2
+        mean_2 = 2 * sum / (n_samples - 1)
+        p_T, p_F = 0.0, 0.0
+        for j in range(n_samples):
+            if i != j:
+                w = np.exp(-(bias * (X[j, 0] - X[i, 0]) ** 2 + (X[j, 1] - X[i, 1]) ** 2) / mean_2)
+                if y[j]:
+                    p_T += w
+                else:
+                    p_F += w
+        p_T, p_F = p_T / (p_T + p_F), p_F / (p_T + p_F)
+        if y[i]:
+            entropy -= np.log(p_T)
+        else:
+            entropy -= np.log(p_F)
+        if (p_T > 0.5) == y[i]:
+            count += 1
+    return count / n_samples, entropy / n_samples
 
 
 ### Hull_2d
@@ -541,9 +614,9 @@ def Hull_2d(X, y):
         for j in range(filled_index[i] - 1):
             S_arr[i] += (EdgeX[i, j + 1, 0] - EdgeX[i, j, 0]) * (EdgeX[i, j + 1, 1] + EdgeX[i, j, 1])
     S_arr = np.abs(S_arr / 2)
-    if nb_isclose(0, S_arr[0], rtol=1e-10, atol=0):
+    if isclose(0, S_arr[0], rtol=1e-10, atol=0):
         return 0, -np.inf
-    if nb_isclose(0, S_arr[1], rtol=1e-10, atol=0):
+    if isclose(0, S_arr[1], rtol=1e-10, atol=0):
         return 0, -np.inf
     cross = False
     index = int(EdgeX[0, 0, 0] > EdgeX[1, 0, 0])
@@ -610,7 +683,7 @@ def Hull_2d(X, y):
                     index, nindex = nindex, index
                 else:
                     last_index = (last_index + 1) % (filled_index[index] - 1)
-            if nb_allclose(first, next, rtol=1e-08, atol=0):
+            if isclose_arr(first, next, rtol=1e-08, atol=0):
                 break
         else:
             return 0, -np.inf

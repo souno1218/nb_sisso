@@ -81,48 +81,60 @@ def make_eq(base_back_equation, change_x_pattern):
 @njit(error_model="numpy")
 def make_check_change_x(base_check_change_x, change_x_pattern):
     return_check_change_x = base_check_change_x.copy()
-    arange = np.arange(base_check_change_x.shape[0])
     for i in range(1, np.max(base_check_change_x) + 1):
-        TF = base_check_change_x[:, 0] == i
-        return_check_change_x[arange[TF], 0] = change_x_pattern[i - 1]
-        TF = base_check_change_x[:, 1] == i
-        return_check_change_x[arange[TF], 1] = change_x_pattern[i - 1]
+        for j in range(base_check_change_x.shape[0]):
+            if base_check_change_x[j, 0] == i:
+                return_check_change_x[j, 0] = change_x_pattern[i - 1]
+            if base_check_change_x[j, 1] == i:
+                return_check_change_x[j, 1] = change_x_pattern[i - 1]
     return return_check_change_x
 
 
 @njit(error_model="numpy")
 def nb_calc_RPN(x, equation):
     int_nan = -100
-    stack = np.full((count_True(equation, 6, 0), x.shape[1]), int_nan, dtype="float64")  # 6 -> lambda x: x >= border
-    stack[0] = x[equation[0]]
-    last_stack_index = 0
-    for i in range(1, equation.shape[0]):
+    n_sample = x.shape[1]
+    stack = np.empty((count_True(equation, 6, 0), n_sample), dtype="float64")  # 6 -> lambda x: x >= border
+    next_index = 0
+    for i in range(equation.shape[0]):
         last_op = equation[i]
         if last_op >= 0:
-            last_stack_index += 1
-            stack[last_stack_index] = x[last_op]
+            set_x(stack[next_index], x[last_op])
+            next_index += 1
         elif last_op == int_nan:
             break
         else:
-            last_stack_index -= 1
-            calc_arr_binary_op(last_op, stack[last_stack_index], stack[last_stack_index + 1])
-    return_stack = np.empty((2, x.shape[1]), dtype="float64")
-    if np.any(np.isinf(stack[0])):
+            calc_arr_binary_op(last_op, stack[next_index - 2], stack[next_index - 1])
+            next_index -= 1
+    return_stack = np.empty((2, n_sample), dtype="float64")
+    if is_inf(stack[0]):
         return_stack[:] = int_nan
         return return_stack
-    elif is_all_zero(stack[0]):
+    if is_all_zero(stack[0]):
         return_stack[0] = int_nan
         return_stack[1] = 0
         return return_stack
-    elif is_all_const(stack[0]):
+    if is_all_const(stack[0]):
         return_stack[0] = int_nan
         return_stack[1] = np.sign(stack[0, 0]) * stack[0]
         return return_stack
-    else:
-        _mean = np.mean(stack[0])
-        return_stack[0] = np.sign(stack[0, 0] - _mean) * (stack[0] - _mean) / np.sqrt(np.mean((stack[0] - _mean) ** 2))
-        return_stack[1] = np.sign(stack[0, 0]) * stack[0]
-        return return_stack
+    _mean = np.mean(stack[0])
+    plus_minus_0 = np.sign(stack[0, 0] - _mean)
+    plus_minus_1 = np.sign(stack[0, 0])
+    sum = 0.0
+    for i in range(n_sample):
+        sum += (stack[0, i] - _mean) ** 2
+    std = np.sqrt(sum / n_sample)
+    for i in range(n_sample):
+        return_stack[0, i] = plus_minus_0 * (stack[0, i] - _mean) / std
+        return_stack[1, i] = plus_minus_1 * stack[0, i]
+    return return_stack
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def set_x(arr_in, arr_out):
+    for i in range(arr_in.shape[0]):
+        arr_in[i] = arr_out[i]
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
@@ -130,16 +142,16 @@ def calc_arr_binary_op(op, arr1, arr2):
     match op:
         case -1:  # +
             for i in range(arr1.shape[0]):
-                arr1[i] = arr1[i] + arr2[i]
+                arr1[i] += arr2[i]
         case -2:  # -
             for i in range(arr1.shape[0]):
-                arr1[i] = arr1[i] - arr2[i]
+                arr1[i] -= arr2[i]
         case -3:  # *
             for i in range(arr1.shape[0]):
-                arr1[i] = arr1[i] * arr2[i]
+                arr1[i] *= arr2[i]
         case -4:  # a / b  (a > b)
             for i in range(arr1.shape[0]):
-                arr1[i] = arr1[i] / arr2[i]
+                arr1[i] /= arr2[i]
         case -5:  # b / a  (a > b)
             for i in range(arr1.shape[0]):
                 arr1[i] = arr2[i] / arr1[i]
@@ -151,25 +163,41 @@ def isclose(a, b, rtol=1e-06, atol=0):
 
 
 @njit(error_model="numpy")
-def is_all_zero(num, atol=1e-06):
-    return np.all(isclose(num, 0, rtol=0, atol=atol))
+def is_inf(arr):
+    for i in range(arr.shape[0]):
+        if np.isinf(arr[i]):
+            return True
+    return False
 
 
 @njit(error_model="numpy")
-def is_all_const(num, rtol=1e-06, atol=0):
-    return (np.max(num) - np.min(num)) <= atol + rtol * np.abs(np.mean(num))
+def is_all_zero(arr, atol=1e-06):
+    for i in range(arr.shape[0]):
+        if not isclose(0, arr[i], rtol=0, atol=atol):
+            return False
+    return True
+
+
+@njit(error_model="numpy")
+def is_all_const(arr, rtol=1e-06, atol=0):
+    min, max, sum = arr[0], arr[0], arr[0]
+    for i in range(1, arr.shape[0]):
+        if min > arr[i]:
+            min = arr[i]
+        if max < arr[i]:
+            max = arr[i]
+        sum += arr[i]
+    return (max - min) <= atol + rtol * np.abs(sum / arr.shape[0])
 
 
 @njit(error_model="numpy")
 def isclose_arr(arr1, arr2, rtol=1e-06, atol=0):
     # if np.all(isclose(arr1, arr2, rtol=rtol, atol=atol)):
     #    return True
-    if isclose(arr1[0], arr2[0], rtol=rtol, atol=atol):
-        if isclose(arr1[1], arr2[1], rtol=rtol, atol=atol):
-            if isclose(arr1[2], arr2[2], rtol=rtol, atol=atol):
-                if np.all(isclose(arr1[3:], arr2[3:], rtol=rtol, atol=atol)):
-                    return True
-    return False
+    for i in range(arr1.shape[0]):
+        if not isclose(arr1[i], arr2[i], rtol=rtol, atol=atol):
+            return False
+    return True
 
 
 @njit(error_model="numpy")
@@ -194,10 +222,11 @@ def find_min_x_max(equation, random_x, random_for_find_min_x_max, rtol=1e-06, at
     change_num = np.arange(max_x + 1)[counter >= 2]  # (b-b) -> count = 2, counter >= 2
     changed_random = random_x.copy()
     for i in change_num:
-        changed_random[i] = random_for_find_min_x_max
+        for j in range(random_for_find_min_x_max.shape[0]):
+            changed_random[i, j] = random_for_find_min_x_max[j]
         changed_similar_num = nb_calc_RPN(changed_random, equation)[0]
         if isclose(similar_num[0], changed_similar_num[0], rtol=rtol, atol=atol):
-            if np.all(isclose(similar_num, changed_similar_num, rtol=rtol, atol=atol)):
+            if isclose_arr(similar_num, changed_similar_num, rtol=rtol, atol=atol):
                 return True
         changed_random[i] = random_x[i]
     return False

@@ -39,18 +39,35 @@ def LDA_1d(x, y):
 
 @njit(error_model="numpy")
 def sub_LDA_1d_fit(x, y):
-    pi_T = np.sum(y)
-    pi_F = np.sum(~y)
-    mu_T = np.mean(x[y])
-    mu_F = np.mean(x[~y])
-    sigma = (np.sum((x[y] - mu_T) ** 2) + np.sum((x[~y] - mu_F) ** 2)) / y.shape[0] + 1e-300
+    n_samples = y.shape[0]
+    pi_T, pi_F = np.sum(y), np.sum(~y)
+    sum_T, sum_F = 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sum_T += x[i]
+        else:
+            sum_F += x[i]
+    mu_T = sum_T / pi_T
+    mu_F = sum_F / pi_F
+    sigma = 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sigma += (x[i] - mu_T) ** 2
+        else:
+            sigma += (x[i] - mu_F) ** 2
+    sigma = sigma / n_samples + 1e-300
     return pi_T, pi_F, mu_T, mu_F, sigma
 
 
 @njit(error_model="numpy")
 def sub_LDA_1d_score(x, y, pi_T, pi_F, mu_T, mu_F, sigma):
-    f = (mu_T - mu_F) * x - (mu_T - mu_F) * (mu_T + mu_F) / 2 + sigma * np.log(pi_T / pi_F)
-    score = np.sum((f >= 0) == y) / y.shape[0]
+    n_samples = x.shape[0]
+    count = 0
+    for i in range(n_samples):
+        f = (mu_T - mu_F) * x[i] - (mu_T - mu_F) * (mu_T + mu_F) / 2 + sigma * np.log(pi_T / pi_F)
+        if (f >= 0) == y[i]:
+            count += 1
+    score = count / n_samples
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = ((mu_T - mu_F) ** 2) / 2 / sigma
     return score, kl_d
@@ -69,18 +86,37 @@ def QDA_1d(x, y):
 
 @njit(error_model="numpy")
 def sub_QDA_1d_fit(x, y):
-    mu_T, mu_F = np.mean(x[y]) + 1e-300, np.mean(x[~y]) + 1e-300
+    n_samples = y.shape[0]
     pi_T, pi_F = np.sum(y), np.sum(~y)
-    sigma_T = np.sum((x[y] - mu_T) ** 2) / (pi_T - 1) + 1e-300
-    sigma_F = np.sum((x[~y] - mu_F) ** 2) / (pi_F - 1) + 1e-300
+    sum_T, sum_F = 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sum_T += x[i]
+        else:
+            sum_F += x[i]
+    mu_T = sum_T / pi_T
+    mu_F = sum_F / pi_F
+    sigma_T, sigma_F = 0.0, 0.0
+    for i in range(n_samples):
+        if y[i]:
+            sigma_T += (x[i] - mu_T) ** 2
+        else:
+            sigma_F += (x[i] - mu_F) ** 2
+    sigma_T = sigma_T / (pi_T - 1)
+    sigma_F = sigma_F / (pi_F - 1)
     value2 = 2 * np.log(pi_T / pi_F) - np.log(sigma_T / sigma_F)
     return mu_T, mu_F, sigma_T, sigma_F, value2
 
 
 @njit(error_model="numpy")
 def sub_QDA_1d_score(x, y, mu_T, mu_F, sigma_T, sigma_F, value2):
-    value = -((x - mu_T) ** 2 / sigma_T) + (((x - mu_F)) ** 2 / sigma_F) + value2
-    score = np.sum((value > 0) == y) / y.shape[0]
+    n_samples = x.shape[0]
+    count = 0
+    for i in range(n_samples):
+        value = -((x[i] - mu_T) ** 2 / sigma_T) + (((x[i] - mu_F)) ** 2 / sigma_F) + value2
+        if (value > 0) == y[i]:
+            count += 1
+    score = count / n_samples
     # Kullback-Leibler Divergence , https://sucrose.hatenablog.com/entry/2013/07/20/190146
     kl_d = (sigma_T + (mu_T - mu_F) ** 2) / 2 / sigma_F - 0.5
     kl_d += np.log(sigma_F / sigma_T) / 2
@@ -345,16 +381,29 @@ def make_sub_WNN_1d_score(p=2, name=None):
 @njit(error_model="numpy")  # ,fastmath=True)
 def WGNN_1d(x, y):
     n_samples = y.shape[0]
-    d_2 = np.empty((n_samples, n_samples), dtype="float64")
+    entropy = 0.0
+    count = 0
     for i in range(n_samples):
-        d_2[i, i] = 0
-        d_2[i, i + 1 :] = (x[i + 1 :] - x[i]) ** 2
-        d_2[i + 1 :, i] = d_2[i, i + 1 :]
-    w = np.exp(-(n_samples / (2 * np.sum(d_2, axis=0))) * d_2)
-    p_T = np.sum(w[y], axis=0) / np.sum(w, axis=0)
-    entropy = -(np.sum(np.log(p_T[y])) + np.sum(np.log(1 - p_T[~y]))) / n_samples
-    count = (np.sum(p_T[y] > 0.5) + np.sum(p_T[~y] < 0.5)) / n_samples
-    return count, -entropy
+        sum = 0.0
+        for j in range(n_samples):
+            if i != j:
+                sum += (x[j] - x[i]) ** 2
+        mean_2 = 2 * sum / (n_samples - 1)
+        p_T, p_F = 0.0, 0.0
+        for j in range(n_samples):
+            if i != j:
+                if y[j]:
+                    p_T += np.exp(-((x[j] - x[i]) ** 2) / mean_2)
+                else:
+                    p_F += np.exp(-((x[j] - x[i]) ** 2) / mean_2)
+        p_T, p_F = p_T / (p_T + p_F), p_F / (p_T + p_F)
+        if y[i]:
+            entropy -= np.log(p_T)
+        else:
+            entropy -= np.log(p_F)
+        if (p_T > 0.5) == y[i]:
+            count += 1
+    return count / n_samples, entropy / n_samples
 
 
 ### Hull
