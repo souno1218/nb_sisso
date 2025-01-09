@@ -513,7 +513,7 @@ def load_preprocessed_results(n_binary_op, n_binary_op1):
     for op in [-1, -2, -3, -4, -5]:
         index = np.arange(data.shape[0])[data[:, 2] == op]
         index = index[np.argsort(data[index, 0])]
-        preprocessed_results[op] = data[index, :2]
+        preprocessed_results[op] = data[index, :2].copy()
 
     with objmode(need_calc="bool[:]"):
         cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
