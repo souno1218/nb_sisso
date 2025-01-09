@@ -133,6 +133,46 @@ def SIS(
             st_handler.setFormatter(logging.Formatter(_format))
             logger.addHandler(st_handler)
 
+    # check exist cache file
+    if max_n_op == 6:
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        exist_cache_6 = os.path.isfile(f"{cache_path}/cache_6.npz")
+        exist_check_change_x_ones_6 = os.path.isfile(f"{cache_path}/check_change_x_ones_6.npz")
+        if exist_cache_6 and exist_check_change_x_ones_6:
+            broken_cache_6, broken_check_change_x_ones_6 = False, False
+            try:
+                np.load(f"{cache_path}/cache_6.npz")
+            except:
+                broken_cache_6 = True
+            try:
+                np.load(f"{cache_path}/check_change_x_ones_6.npz")
+            except:
+                broken_check_change_x_ones_6 = True
+            if broken_cache_6 or broken_check_change_x_ones_6:
+                corrupted_files = []
+                if broken_cache_6:
+                    corrupted_files.append("cache_6.npz")
+                if broken_check_change_x_ones_6:
+                    corrupted_files.append("check_change_x_ones_6.npz")
+                file_list = ", ".join(corrupted_files)
+                raise_and_log(logger, ValueError(f"The cache files {file_list} are corrupted. Please regenerate them."))
+        else:
+            not_founf_files = []
+            if not exist_cache_6:
+                not_founf_files.append("cache_6.npz")
+            if not exist_check_change_x_ones_6:
+                not_founf_files.append("check_change_x_ones_6.npz")
+            file_list = ", ".join(not_founf_files)
+            download_url = "https://drive.google.com/drive/folders/1SKGgM8iNV8-Dbn9UushDy3hPJXV6vEf6?usp=drive_link"
+            txt = (
+                f"The cache files {file_list} were not found. Due to GitHub file size limitations, \n"
+                f"                   cache_6.npz and check_change_x_ones_6.npz cannot be downloaded directly. \n"
+                f"                   Please download them from the following URL or use `make_cache.py` to generate them manually. \n"
+                f"                   URL: {download_url}\n"
+                f"                   Place the files in {cache_path}."
+            )
+            raise_and_log(logger, FileNotFoundError(txt))
+
     # num_threads
     if num_threads is None:
         num_threads = multiprocessing.cpu_count()
@@ -206,7 +246,7 @@ def SIS(
     for i in list(dict_op_str_to_num.keys())[:4]:
         if i in operators_to_use:
             use_binary_op += [dict_op_str_to_num[i]]
-    if -4 in operators_to_use:
+    if "/" in operators_to_use:
         use_binary_op += [-5]
 
     # use_unary_op
