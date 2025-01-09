@@ -310,7 +310,7 @@ def SIS(
     for n_op in range(1, max_n_op + 1):
         time1 = datetime.datetime.now()
         logger.info(f"  n_op={n_op}")
-        for n_op1 in range(n_op):
+        for n_op1 in range(n_op - 1, -1, -1):
             n_op2 = n_op - 1 - n_op1
             loop = loop_counter_binary(n_op1, n_op2, used_eq_dict)
             logger.info(f"    binary_op n_op1:n_op2 = {n_op1}:{n_op2},  loop:{loop}")
