@@ -540,15 +540,18 @@ def make_eq_id(n_binary_op1, info):
     n_binary_op = info.shape[0] - 1
     unique = np.unique(info)
     len_unique = unique.shape[0]
-    arange = np.arange(len_unique)
     unique_arr = np.empty(len_unique + 1, dtype="int64")
     dict_x_to_num = np.full((len_unique, 2), int_nan, dtype="int8")
     retuen_arr = np.empty(n_binary_op - n_binary_op1, dtype="int8")
 
     n = 1
+    index = 0
     for i in info[: n_binary_op1 + 1]:
         if i != 0:
-            index = arange[unique == i][0]
+            for j in range(len_unique):
+                if unique[j] == i:
+                    index == j
+                    break
             if dict_x_to_num[index, 0] == int_nan:
                 unique_arr[n] = i
                 dict_x_to_num[index, 0] = n
@@ -556,7 +559,10 @@ def make_eq_id(n_binary_op1, info):
     k = 0
     for i in info[n_binary_op1 + 1 :]:
         if i != 0:
-            index = arange[unique == i][0]
+            for j in range(len_unique):
+                if unique[j] == i:
+                    index == j
+                    break
             if dict_x_to_num[index, 1] == int_nan:
                 if dict_x_to_num[index, 0] == int_nan:
                     unique_arr[n] = i
@@ -693,7 +699,6 @@ def sub_loop_binary_op(
                 if use_eq_arr2.shape[0] == 0:
                     continue
                 n_binary_op = n_binary_op1 + n_binary_op2 + 1
-                now_use_binary_op = use_binary_op.copy()
                 preprocessed_results, num_to_index, preprocessed_need_calc, check_change_x = load_preprocessed_results(
                     n_binary_op, n_binary_op1
                 )
@@ -701,7 +706,7 @@ def sub_loop_binary_op(
                 len_eq_arr1 = use_eq_arr1.shape[0]
                 len_eq_arr2 = use_eq_arr2.shape[0]
                 if max_n_op != n_op:
-                    len_used_arr = len(now_use_binary_op) * ((len_eq_arr1 * len_eq_arr2) // num_threads + 1)
+                    len_used_arr = len(use_binary_op) * ((len_eq_arr1 * len_eq_arr2) // num_threads + 1)
                 else:  # max_n_op==n_op:
                     len_used_arr = 0
                 used_eq_arr_thread = np.full((num_threads, len_used_arr, 2 * n_op + 1), int_nan, dtype="int8")
@@ -731,14 +736,13 @@ def sub_loop_binary_op(
                         unique_arr, changed_back_eq_x_num = make_eq_id(n_binary_op1, info)
                         changed_back_eq_x_index = num_to_index[changed_back_eq_x_num]
                         id = (changed_back_eq_x_index * preprocessed_len2 + shape_id2) * preprocessed_len1 + shape_id1
-                        for merge_op in now_use_binary_op:
+                        for merge_op in use_binary_op:
                             arr = preprocessed_results[merge_op]
                             eq_id = int_nan
                             for i in range(arr.shape[0]):
-                                if id == arr[i, 0]:
-                                    eq_id = arr[i, 1]
-                                    break
-                                elif id < arr[i, 0]:
+                                if id <= arr[i, 0]:
+                                    if id == arr[i, 0]:
+                                        eq_id = arr[i, 1]
                                     break
                             if eq_id != int_nan:
                                 need_save = True
