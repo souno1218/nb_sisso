@@ -310,7 +310,7 @@ def SIS(
         logger.info(f"  n_op={n_op}")
         for n_op1 in range(n_op - 1, -1, -1):
             n_op2 = n_op - 1 - n_op1
-            loop = loop_counter_binary(n_op1, n_op2, used_eq_dict)
+            loop = loop_counter_binary(use_binary_op, n_op1, n_op2, used_eq_dict)
             logger.info(f"    binary_op n_op1:n_op2 = {n_op1}:{n_op2},  loop:{loop}")
             time2 = datetime.datetime.now()
             if is_progress:
@@ -441,7 +441,7 @@ def compiling(num_threads, is_use_1, use_binary_op, use_unary_op, x, y, units, m
 
 
 @njit(error_model="numpy")
-def loop_counter_binary(n_op1, n_op2, used_eq_dict):
+def loop_counter_binary(use_binary_op, n_op1, n_op2, used_eq_dict):
     loop = 0
     for n_binary_op1 in range(n_op1 + 1):
         if n_binary_op1 in list(used_eq_dict[n_op1].keys()):
@@ -449,6 +449,8 @@ def loop_counter_binary(n_op1, n_op2, used_eq_dict):
             for n_binary_op2 in range(n_op2 + 1):
                 if n_binary_op2 in list(used_eq_dict[n_op2].keys()):
                     if n_binary_op1 >= n_binary_op2:
+                        loop += len(use_binary_op) * len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
+                    elif -4 in use_binary_op:
                         loop += len_use_eq_arr1 * used_eq_dict[n_op2][n_binary_op2].shape[0]
     return loop
 
@@ -523,14 +525,6 @@ def load_preprocessed_results(n_binary_op, n_binary_op1):
         check_change_x = np.load(f"{cache_path}/check_change_x_ones_{n_binary_op}.npz")["arr_0"]
 
     return preprocessed_results, num_to_index, need_calc, check_change_x
-
-
-@njit(error_model="numpy")
-def load_preprocessed_arr_len():
-    with objmode(preprocessed_arr_len="int64[:]"):
-        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
-        preprocessed_arr_len = np.load(f"{cache_path}/arr_len.npy")
-    return preprocessed_arr_len
 
 
 @njit(error_model="numpy")
@@ -673,7 +667,6 @@ def sub_loop_binary_op(
 ):
     int_nan = -100
 
-    preprocessed_arr_len = load_preprocessed_arr_len()
     num_threads = save_score_list.shape[0]
     max_n_op = (save_eq_list.shape[2] - 1) // 2
     n_op2 = n_op - 1 - n_op1
@@ -691,10 +684,10 @@ def sub_loop_binary_op(
             if not n_binary_op2 in list(used_eq_dict[n_op2].keys()):
                 continue
             if n_binary_op1 >= n_binary_op2:
-                now_use_binary_op = use_binary_op
+                now_use_binary_op = np.array(use_binary_op)
             else:
                 if -4 in use_binary_op:
-                    now_use_binary_op = [-4]
+                    now_use_binary_op = np.array([-4])
                 else:
                     continue
             use_eq_arr2 = used_eq_dict[n_op2][n_binary_op2]
@@ -804,7 +797,7 @@ def sub_loop_binary_op(
                                                     elif border1 == min_num1:
                                                         if border2 > min_num2:
                                                             border2 = min_num2
-                    progress.update(1)
+                        progress.update(1)
                 save_score_list[thread_id] = score_list
                 save_eq_list[thread_id] = eq_list
                 min_index_list[thread_id] = min_index
