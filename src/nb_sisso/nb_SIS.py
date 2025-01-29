@@ -694,7 +694,7 @@ def sub_loop_binary_op(
                 now_use_binary_op = use_binary_op
             else:
                 if -4 in use_binary_op:
-                    now_use_binary_op = np.array([-4])
+                    now_use_binary_op = [-4]
                 else:
                     continue
             use_eq_arr2 = used_eq_dict[n_op2][n_binary_op2]
@@ -931,6 +931,8 @@ def sub_loop_unary_op(
                     checked = False
                     unit = base_unit
                     match op:
+                        case -5:  # *-1
+                            None  # 存在意義が分からない
                         case -6:  # ^-1
                             # if equation[len_base_eq-1]!=-6:#^-1
                             # checked=True
