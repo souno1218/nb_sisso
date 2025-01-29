@@ -31,9 +31,8 @@ def decryption(equation, columns=None):
             case -4:  # a / b  (a > b)
                 b, a = stack.pop(), stack.pop()
                 stack.append(f"({a}/{b})")
-            case -5:  # b / a  (a > b)
-                b, a = stack.pop(), stack.pop()
-                stack.append(f"({b}/{a})")
+            case -5:  # *-1
+                stack[len(stack) - 1] = f"({stack[len(stack)-1]}*-1)"
             case -6:  # ^-1
                 stack[len(stack) - 1] = f"({stack[len(stack)-1]}**-1)"
             case -7:  # ^2
@@ -159,9 +158,8 @@ def calc_RPN(x, equation, fmax_max=1e15, fmax_min=1e-15):
                 case -4:  # a / b  (a > b)
                     calc_arr_binary_op(last_op, stack[next_index - 2], stack[next_index - 1])
                     next_index -= 1
-                case -5:  # b / a  (a > b)
-                    calc_arr_binary_op(last_op, stack[next_index - 2], stack[next_index - 1])
-                    next_index -= 1
+                case -5:  # *-1
+                    calc_arr_unary_op(last_op, stack[next_index - 1])
                 case -6:  # ^-1
                     calc_arr_unary_op(last_op, stack[next_index - 1])
                 case -7:  # ^2
@@ -247,14 +245,14 @@ def calc_arr_binary_op(op, arr1, arr2):
         case -4:  # a / b  (a > b)
             for i in range(arr1.shape[0]):
                 arr1[i] /= arr2[i]
-        case -5:  # b / a  (a > b)
-            for i in range(arr1.shape[0]):
-                arr1[i] = arr2[i] / arr1[i]
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
 def calc_arr_unary_op(op, arr):
     match op:
+        case -5:  # *-1
+            for i in range(arr.shape[0]):
+                arr[i] = -arr[i]
         case -6:  # ^-1
             for i in range(arr.shape[0]):
                 arr[i] = arr[i] ** -1
