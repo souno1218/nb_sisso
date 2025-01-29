@@ -491,6 +491,14 @@ def eq_to_num(eq, x_max):
 
 
 @njit(error_model="numpy")
+def load_preprocessed_arr_len():
+    with objmode(preprocessed_arr_len="int64[:]"):
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        preprocessed_arr_len = np.load(f"{cache_path}/arr_len.npy")
+    return preprocessed_arr_len
+
+
+@njit(error_model="numpy")
 def load_preprocessed_results(n_binary_op, n_binary_op1):
     int_nan = -100
     # back_eq -> make_change_x_id -> changed_back_eq_x_num
