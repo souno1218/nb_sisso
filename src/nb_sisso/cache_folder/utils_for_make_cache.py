@@ -1,6 +1,5 @@
 import numpy as np
 from numba import njit, prange, objmode
-from numba.types import int8
 
 
 @njit(error_model="numpy")
@@ -373,17 +372,19 @@ def count_True(arr, mode, border):
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def make_check_change_x(eq, mask, same_arr, TF_mask_x):
+def make_check_change_x(eq, mask, same_arr, TF_mask_x, before_check1, before_check2):
     all_covered, return_arr = sub_make_check_change_x(mask, same_arr, TF_mask_x)
-
     if all_covered:
         return True, return_arr[0]
     else:
         if return_arr.shape[0] == 0:
-            print("ERROR : not seleced", eq)
-            print(mask)
-            print(same_arr)
-            print(TF_mask_x)
+            l_txt = ["ERROR : not selected" + str(eq)]
+            l_txt.append(str(mask))
+            l_txt.append(str(same_arr))
+            l_txt.append(str(TF_mask_x))
+            l_txt.append(str(before_check1))
+            l_txt.append(str(before_check2))
+            raise ValueError("".join(l_txt))
         return False, np.empty((0, 2), dtype="int8")
 
 
@@ -391,32 +392,16 @@ def make_check_change_x(eq, mask, same_arr, TF_mask_x):
 def sub_make_check_change_x(mask, same_arr, TF_mask_x):
     int_nan = -100
     unique = np.unique(same_arr[TF_mask_x])
-    arange = np.arange(unique.shape[0])
-    count = 0
-    for i in range(np.max(same_arr) + 1):
-        if i in unique:
-            count += count_True(same_arr, 1, i)  # lambda x: x == border
-    if count == unique.shape[0]:
-        return True, np.empty((1, 0, 2), dtype="int8")
-    changed_same_arr = np.empty(count, dtype="int64")
-    TF_for_mask = np.empty(same_arr.shape[0], dtype="bool")
-    n = 0
-    for i in range(same_arr.shape[0]):
-        if same_arr[i] in unique:
-            changed_same_arr[n] = arange[unique == same_arr[i]][0]
-            TF_for_mask[i] = True
-            n += 1
-        else:
-            TF_for_mask[i] = False
-    mask = mask[TF_for_mask]
-    TF_mask_x = TF_mask_x[TF_for_mask]
+    all_covered = unique.shape[0] == np.max(same_arr) + 1
+    if same_arr.shape[0] == np.max(same_arr) + 1:
+        return all_covered, np.empty((1, 0, 2), dtype="int8")
 
-    max_changed_same_arr = np.max(changed_same_arr)
+    max_same_arr = np.max(same_arr)
     len_arr = mask.shape[1]
     TF = np.empty(((len_arr - 2) * (len_arr - 1), mask.shape[0]), dtype="bool")
     check_pattern = np.empty(((len_arr - 2) * (len_arr - 1), 2), dtype="int8")
     n = 0
-    saved_num = np.empty((max_changed_same_arr + 1), dtype="bool")
+    saved_num = np.empty((max_same_arr + 1), dtype="bool")
     for i in range(1, len_arr):
         for j in range(1, len_arr):
             if i != j:
@@ -426,7 +411,7 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
                 for t in range(mask.shape[0]):
                     TF[n, t] = mask[t, i] < mask[t, j]
                     if TF[n, t]:
-                        saved_num[changed_same_arr[t]] = True
+                        saved_num[same_arr[t]] = True
                 if np.all(saved_num):
                     n += 1
     len_check_pattern = n
@@ -445,7 +430,9 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
             c //= j + 1
         if c > 10000:
             c = 10000
+
         return_arr = np.empty((c, return_len, 2), dtype="int8")
+        mat_saved_num = np.empty((c, max_same_arr + 1), dtype="bool")
 
         divide_num = len_check_pattern - (i - 1)
         for j in range(divide_num**i):
@@ -473,34 +460,49 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
                                 tot_TF[l] = False
                 for k in range(mask.shape[0]):
                     if tot_TF[k]:
-                        if saved_num[changed_same_arr[k]]:
+                        if saved_num[same_arr[k]]:
                             can_use = False
                             break
                         else:
-                            saved_num[changed_same_arr[k]] = True
-
+                            saved_num[same_arr[k]] = True
                 if can_use:
                     if np.all(saved_num):
                         saved_num[:] = False
                         for k in range(mask.shape[0]):
                             if tot_TF[k]:
                                 if TF_mask_x[k]:
-                                    saved_num[changed_same_arr[k]] = True
-                        for k in range(len_check_pattern):
-                            if use[k]:
-                                arr = TF[k][TF_mask_x]
-                                same = True
-                                for l in range(1, arr.shape[0]):
-                                    if arr[0] != arr[l]:
-                                        same = False
+                                    saved_num[same_arr[k]] = True
+                        if np.any(saved_num):
+                            if np.all(saved_num):
+                                for k in range(len_check_pattern):
+                                    if use[k]:
+                                        arr = TF[k][TF_mask_x]
+                                        if np.all(arr):
+                                            use[k] = False
+                                return_arr[n, : np.sum(use)] = check_pattern[use]
+                                return_arr[n, np.sum(use) :] = int_nan
+                                return (all_covered, np.expand_dims(return_arr[n], axis=0))
+                            else:
+                                is_unique = True
+                                for k in range(n):
+                                    sub_is_unique = False
+                                    for l in range(saved_num.shape[0]):
+                                        if mat_saved_num[k, l] != saved_num[l]:
+                                            sub_is_unique = True
+                                            break
+                                    if not sub_is_unique:
+                                        is_unique = False
                                         break
-                                if same:
-                                    use[k] = False
-                        return_arr[n, : np.sum(use)] = check_pattern[use]
-                        return_arr[n, np.sum(use) :] = int_nan
-                        if np.all(saved_num):
-                            return True, np.expand_dims(return_arr[n], axis=0)
-                        n += 1
+                                if is_unique:
+                                    for k in range(len_check_pattern):
+                                        if use[k]:
+                                            arr = TF[k][TF_mask_x]
+                                            if np.all(arr):
+                                                use[k] = False
+                                    return_arr[n, : np.sum(use)] = check_pattern[use]
+                                    return_arr[n, np.sum(use) :] = int_nan
+                                    mat_saved_num[n] = saved_num
+                                    n += 1
         if n != 0:
             return False, return_arr[:n]
     return False, np.empty((0, return_len, 2), dtype="int8")
