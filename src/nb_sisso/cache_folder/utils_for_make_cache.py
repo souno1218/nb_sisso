@@ -155,8 +155,8 @@ def calc_arr_binary_op(op, arr1, arr2):
 
 
 @njit(error_model="numpy")
-def isclose(a, b, rtol=1e-06, atol=0):
-    return np.abs(a - b) <= atol + rtol * np.abs(b)
+def isclose(a, b, rtol=1e-04, atol=0):
+    return np.abs(a - b) <= atol + rtol * min(np.abs(b), np.abs(a))
 
 
 @njit(error_model="numpy")
@@ -187,6 +187,7 @@ def is_all_const(arr, rtol=1e-06, atol=0):
     return (max - min) <= atol + rtol * np.abs(sum / arr.shape[0])
 
 
+"""
 @njit(error_model="numpy")
 def isclose_arr(arr1, arr2, rtol=1e-06, atol=0):
     # if np.all(isclose(arr1, arr2, rtol=rtol, atol=atol)):
@@ -195,6 +196,16 @@ def isclose_arr(arr1, arr2, rtol=1e-06, atol=0):
         if not isclose(arr1[i], arr2[i], rtol=rtol, atol=atol):
             return False
     return True
+"""
+
+
+@njit(error_model="numpy")
+def isclose_arr(arr1, arr2, rtol=1e-7, atol=0):
+    sum = 0.0
+    len_arr = arr1.shape[0]
+    for i in range(len_arr):
+        sum += (np.abs(arr1[i] - arr2[i]) - atol) / min(np.abs(arr1[i]), np.abs(arr2[i]))
+    return sum / len_arr <= rtol
 
 
 @njit(error_model="numpy")
@@ -372,31 +383,13 @@ def count_True(arr, mode, border):
 
 
 @njit(error_model="numpy")  # ,fastmath=True)
-def make_check_change_x(eq, mask, same_arr, TF_mask_x, before_check1, before_check2):
-    all_covered, return_arr = sub_make_check_change_x(mask, same_arr, TF_mask_x)
-    if all_covered:
-        return True, return_arr[0]
-    else:
-        if return_arr.shape[0] == 0:
-            l_txt = ["ERROR : not selected" + str(eq)]
-            l_txt.append(str(mask))
-            l_txt.append(str(same_arr))
-            l_txt.append(str(TF_mask_x))
-            l_txt.append(str(before_check1))
-            l_txt.append(str(before_check2))
-            raise ValueError("".join(l_txt))
-        return False, np.empty((0, 2), dtype="int8")
-
-
-@njit(error_model="numpy")  # ,fastmath=True)
-def sub_make_check_change_x(mask, same_arr, TF_mask_x):
+def make_check_change_x(mask, same_arr, TF_mask_x):
     int_nan = -100
-    unique = np.unique(same_arr[TF_mask_x])
-    all_covered = unique.shape[0] == np.max(same_arr) + 1
-    if same_arr.shape[0] == np.max(same_arr) + 1:
-        return all_covered, np.empty((1, 0, 2), dtype="int8")
-
     max_same_arr = np.max(same_arr)
+    unique = np.unique(same_arr[TF_mask_x])
+    all_covered = unique.shape[0] == max_same_arr + 1
+    if same_arr[TF_mask_x].shape[0] == unique.shape[0]:
+        return True, all_covered, np.empty((1, 0, 2), dtype="int8")
     len_arr = mask.shape[1]
     TF = np.empty(((len_arr - 2) * (len_arr - 1), mask.shape[0]), dtype="bool")
     check_pattern = np.empty(((len_arr - 2) * (len_arr - 1), 2), dtype="int8")
@@ -425,7 +418,6 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
     for i in range(1, return_len + 1):
         return_dict = dict()
         dict_saved_num = dict()
-
         divide_num = len_check_pattern - (i - 1)
         for j in range(divide_num**i):
             num = j
@@ -464,15 +456,14 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
                             if tot_TF[k]:
                                 if TF_mask_x[k]:
                                     saved_num[same_arr[k]] = True
-                        if np.any(saved_num):
+                        if can_use:
                             if np.all(saved_num):
                                 for k in range(len_check_pattern):
                                     if use[k]:
-                                        arr = TF[k][TF_mask_x]
-                                        if np.all(arr):
+                                        if np.all(TF[k][TF_mask_x]):
                                             use[k] = False
-                                return (all_covered, np.expand_dims(check_pattern[use], axis=0))
-                            else:
+                                return True, all_covered, np.expand_dims(check_pattern[use], axis=0)
+                            elif np.any(saved_num):
                                 is_unique = True
                                 for k in range(n):
                                     one_dict_saved_num = dict_saved_num[k]
@@ -487,8 +478,7 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
                                 if is_unique:
                                     for k in range(len_check_pattern):
                                         if use[k]:
-                                            arr = TF[k][TF_mask_x]
-                                            if np.all(arr):
+                                            if np.all(TF[k][TF_mask_x]):
                                                 use[k] = False
                                     return_dict[n] = check_pattern[use].copy()
                                     dict_saved_num[n] = saved_num.copy()
@@ -498,5 +488,134 @@ def sub_make_check_change_x(mask, same_arr, TF_mask_x):
             for j in range(n):
                 arr = return_dict[j]
                 return_arr[j, : arr.shape[0]] = arr
-            return False, return_arr
-    return False, np.empty((0, return_len, 2), dtype="int8")
+            return True, False, return_arr
+    return False, False, np.empty((0, return_len, 2), dtype="int8")
+
+
+@njit(error_model="numpy")  # ,fastmath=True)
+def make_check_change_x_norm(base_mask, base_norm_same_arr, base_TF_mask_x, base_check_pattern):
+    int_nan = -100
+    TF_mask_x = base_TF_mask_x.copy()
+    for i in range(base_mask.shape[0]):
+        if base_TF_mask_x[i]:
+            for j in range(base_check_pattern.shape[0]):
+                if base_mask[i, base_check_pattern[j, 0]] > base_mask[i, base_check_pattern[j, 1]]:
+                    TF_mask_x[i] = False
+                    break
+    mask = base_mask[TF_mask_x].copy()
+    max_norm_same_arr = np.max(base_norm_same_arr)
+    norm_same_arr_set = np.full(max_norm_same_arr + 1, int_nan, dtype="int64")
+    norm_same_arr = np.empty_like(base_norm_same_arr[TF_mask_x])
+    n = 0
+    for i, j in enumerate(np.arange(len(TF_mask_x))[TF_mask_x]):
+        num = base_norm_same_arr[j]
+        if norm_same_arr_set[num] == int_nan:
+            norm_same_arr_set[num] = n
+            norm_same_arr[i] = n
+            n += 1
+        else:
+            norm_same_arr[i] = norm_same_arr_set[num]
+
+    max_norm_same_arr = np.max(norm_same_arr)
+    n_unique_norm_same_arr = np.unique(norm_same_arr).shape[0]
+    if n_unique_norm_same_arr == np.sum(TF_mask_x):
+        return True, np.empty((0, 2), dtype="int8")
+    len_arr = mask.shape[1]
+    TF = np.empty(((len_arr - 2) * (len_arr - 1), mask.shape[0]), dtype="bool")
+    check_pattern = np.empty(((len_arr - 2) * (len_arr - 1), 2), dtype="int8")
+    n = 0
+    norm_saved_num = np.empty((max_norm_same_arr + 1), dtype="bool")
+    for i in range(1, len_arr):
+        for j in range(1, len_arr):
+            if i != j:
+                check_pattern[n, 0] = i
+                check_pattern[n, 1] = j
+                norm_saved_num[:] = False
+                for t in range(mask.shape[0]):
+                    TF[n, t] = mask[t, i] < mask[t, j]
+                    if TF[n, t]:
+                        norm_saved_num[norm_same_arr[t]] = True
+                if np.all(norm_saved_num):
+                    n += 1
+    len_check_pattern = n
+    TF = TF[:len_check_pattern]
+    check_pattern = check_pattern[:len_check_pattern]
+
+    use = np.zeros((len_check_pattern), dtype="bool")
+    tot_TF = np.empty((mask.shape[0]), dtype="bool")
+    return_len = min(len_arr - 2, len_check_pattern)
+    n = 0
+    for i in range(1, return_len + 1):
+        divide_num = len_check_pattern - (i - 1)
+        for j in range(divide_num**i):
+            num = j
+            max_setted_num = -1
+            use[:] = False
+            check = True
+            for k in range(i):
+                set_num = num % divide_num + k
+                num //= divide_num
+                if max_setted_num < set_num:
+                    use[set_num] = True
+                    max_setted_num = set_num
+                else:
+                    check = False
+                    break
+            if check:
+                can_use = True
+                tot_TF[:] = True
+                norm_saved_num[:] = False
+                for k in range(len_check_pattern):
+                    if use[k]:
+                        for l in range(mask.shape[0]):
+                            if not TF[k, l]:
+                                tot_TF[l] = False
+                for k in range(mask.shape[0]):
+                    if tot_TF[k]:
+                        if norm_saved_num[norm_same_arr[k]]:
+                            can_use = False
+                            break
+                        else:
+                            norm_saved_num[norm_same_arr[k]] = True
+                if can_use:
+                    if np.all(norm_saved_num):
+                        return True, check_pattern[use]
+    return False, np.empty((0, 2), dtype="int8")
+
+
+@njit(error_model="numpy")
+def corrcoef(x_1, x_2):
+    mean_1, mean_2 = np.mean(x_1), np.mean(x_2)
+    x_len = x_1.shape[0]
+    sum_1, sum_2, cov = 0.0, 0.0, 0.0
+    for i in range(x_len):
+        sum_1 += (x_1[i] - mean_1) ** 2
+        sum_2 += (x_2[i] - mean_2) ** 2
+        cov += (x_1[i] - mean_1) * (x_2[i] - mean_2)
+    return np.abs(cov / np.sqrt(sum_1 * sum_2))
+
+
+@njit(error_model="numpy")
+def make_random_x(max_op, len_x, seed=-100, loop=100000, upper=0.3, lower=10):
+    if seed != -100:
+        np.random.seed(seed)
+    save_random_x = np.random.uniform(upper, lower, (max_op + 2, len_x))
+    save_corrcoef = 0
+    for i in range(1, max_op + 1):
+        for j in range(i + 1, max_op + 2):
+            new_corrcoef = corrcoef(save_random_x[i], save_random_x[j])
+            if new_corrcoef > save_corrcoef:
+                save_corrcoef = new_corrcoef
+    for _ in range(loop):
+        random_x = np.random.uniform(upper, lower, (max_op + 2, len_x))
+        now_corrcoef = 0
+        for i in range(1, max_op + 1):
+            for j in range(i + 1, max_op + 2):
+                new_corrcoef = corrcoef(random_x[i], random_x[j])
+                if new_corrcoef > now_corrcoef:
+                    now_corrcoef = new_corrcoef
+        if save_corrcoef > now_corrcoef:
+            save_corrcoef = now_corrcoef
+            save_random_x = random_x
+    save_random_x[0] = 1
+    return save_corrcoef, save_random_x

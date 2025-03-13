@@ -499,6 +499,14 @@ def load_preprocessed_arr_len():
 
 
 @njit(error_model="numpy")
+def load_preprocessed_eqs(n_binary_op):
+    with objmode(preprocessed_eqs="int8[:,:]"):
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        preprocessed_eqs = np.load(f"{cache_path}/operator_{n_binary_op}.npy")
+    return preprocessed_eqs
+
+
+@njit(error_model="numpy")
 def load_preprocessed_results(n_binary_op, n_binary_op1):
     int_nan = -100
     # back_eq -> make_change_x_id -> changed_back_eq_x_num
@@ -532,7 +540,10 @@ def load_preprocessed_results(n_binary_op, n_binary_op1):
         cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
         check_change_x = np.load(f"{cache_path}/check_change_x_ones_{n_binary_op}.npz")["arr_0"]
 
-    return preprocessed_results, num_to_index, need_calc, check_change_x
+    with objmode(one_eq_calc_check_change_x="int8[:,:,:]"):
+        cache_path = os.fspath(pkg_resources.path("nb_sisso", "cache_folder"))
+        one_eq_calc_check_change_x = np.load(f"{cache_path}/one_eq_calc_check_change_x_{n_binary_op}.npz")["arr_0"]
+    return preprocessed_results, num_to_index, need_calc, check_change_x, one_eq_calc_check_change_x
 
 
 @njit(error_model="numpy")
@@ -542,6 +553,7 @@ def make_eq_id(n_binary_op1, info):
     unique = np.unique(info)
     len_unique = unique.shape[0]
     unique_arr = np.empty(len_unique + 1, dtype="int64")
+    unique_arr[0] = 0
     dict_x_to_num = np.full((len_unique, 2), int_nan, dtype="int8")
     retuen_arr = np.empty(n_binary_op - n_binary_op1, dtype="int8")
 
@@ -551,7 +563,7 @@ def make_eq_id(n_binary_op1, info):
         if i != 0:
             for j in range(len_unique):
                 if unique[j] == i:
-                    index == j
+                    index = j
                     break
             if dict_x_to_num[index, 0] == int_nan:
                 unique_arr[n] = i
@@ -562,7 +574,7 @@ def make_eq_id(n_binary_op1, info):
         if i != 0:
             for j in range(len_unique):
                 if unique[j] == i:
-                    index == j
+                    index = j
                     break
             if dict_x_to_num[index, 1] == int_nan:
                 if dict_x_to_num[index, 0] == int_nan:
@@ -705,8 +717,8 @@ def sub_loop_binary_op(
             if use_eq_arr2.shape[0] == 0:
                 continue
             n_binary_op = n_binary_op1 + n_binary_op2 + 1
-            preprocessed_results, num_to_index, preprocessed_need_calc, check_change_x = load_preprocessed_results(
-                n_binary_op, n_binary_op1
+            preprocessed_results, num_to_index, preprocessed_need_calc, check_change_x, one_eq_calc_check_change_x = (
+                load_preprocessed_results(n_binary_op, n_binary_op1)
             )
             len_units = use_unit_arr1[0].shape[0]
             len_eq_arr1 = use_eq_arr1.shape[0]
@@ -780,21 +792,20 @@ def sub_loop_binary_op(
                                         used_info_arr_thread[thread_id, last_index] = info
                                         last_index += 1
                                     if preprocessed_need_calc[eq_id]:
-                                        score1, score2 = model_score(ans_num, y)
-                                        if not (np.isnan(score1) or np.isnan(score2)):
-                                            if score1 > border1:
-                                                score_list[min_index, 0] = score1
-                                                score_list[min_index, 1] = score2
-                                                eq_list[min_index, : 2 * n_op + 1] = equation
-                                                min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                                if border1 > min_num1:
-                                                    border1 = min_num1
-                                                    border2 = min_num2
-                                                elif border1 == min_num1:
-                                                    if border2 > min_num2:
-                                                        border2 = min_num2
-                                            elif score1 == border1:
-                                                if score2 > border2:
+                                        need_calc = True
+                                        for k in range(one_eq_calc_check_change_x.shape[1]):
+                                            if one_eq_calc_check_change_x[eq_id, k, 0] == int_nan:
+                                                break
+                                            if (
+                                                unique_arr[one_eq_calc_check_change_x[eq_id, k, 0]]
+                                                > unique_arr[one_eq_calc_check_change_x[eq_id, k, 1]]
+                                            ):
+                                                need_calc = False
+                                                break
+                                        if need_calc:
+                                            score1, score2 = model_score(ans_num, y)
+                                            if not (np.isnan(score1) or np.isnan(score2)):
+                                                if score1 > border1:
                                                     score_list[min_index, 0] = score1
                                                     score_list[min_index, 1] = score2
                                                     eq_list[min_index, : 2 * n_op + 1] = equation
@@ -805,6 +816,18 @@ def sub_loop_binary_op(
                                                     elif border1 == min_num1:
                                                         if border2 > min_num2:
                                                             border2 = min_num2
+                                                elif score1 == border1:
+                                                    if score2 > border2:
+                                                        score_list[min_index, 0] = score1
+                                                        score_list[min_index, 1] = score2
+                                                        eq_list[min_index, : 2 * n_op + 1] = equation
+                                                        min_num1, min_num2, min_index = argmin_and_min(score_list)
+                                                        if border1 > min_num1:
+                                                            border1 = min_num1
+                                                            border2 = min_num2
+                                                        elif border1 == min_num1:
+                                                            if border2 > min_num2:
+                                                                border2 = min_num2
                         progress.update(1)
                 save_score_list[thread_id] = score_list
                 save_eq_list[thread_id] = eq_list

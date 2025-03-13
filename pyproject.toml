@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nb_sisso"
-version = "0.3"
+version = "0.4"
 description = "説明"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,7 +23,8 @@ where = ["src"]
                "cache_folder/cache_*.npz",
                "cache_folder/check_change_x_ones_*.npz",
                "cache_folder/need_calc_*.npz",
-               "cache_folder/num_to_index_*.npz"]
+               "cache_folder/num_to_index_*.npz",
+               "cache_folder/one_eq_calc_check_change_x_*.npz"]
 
 
 #!python -m build

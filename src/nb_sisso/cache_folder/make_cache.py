@@ -1,5 +1,3 @@
-from operator import index
-from networkx import kamada_kawai_layout
 import numpy as np
 import numba, os, datetime, logging, multiprocessing
 from numba import njit, prange, set_num_threads, objmode, get_num_threads
@@ -21,7 +19,7 @@ def main(max_op, num_threads, len_x=5, log_interval=300, verbose=True, logger=No
             st_handler = logging.StreamHandler()
             st_handler.setLevel(logging.INFO)
             # _format = "%(asctime)s %(name)s:%(lineno)s %(funcName)s [%(levelname)s]: %(message)s"
-            _format = "%(asctime)s %(name)s [%(levelname)s] : %(message)s"
+            _format = "%(asctime)s : %(message)s"
             st_handler.setFormatter(logging.Formatter(_format))
             logger.addHandler(st_handler)
 
@@ -47,18 +45,12 @@ def main(max_op, num_threads, len_x=5, log_interval=300, verbose=True, logger=No
     logger.info(f"max_op = {max_op}  ,  date : {time0}")
     logger.info(f"use cores : {get_num_threads()}")
 
-    # np.random.seed(100)
     logger.info("making random_x")
-    save_random_x = np.random.uniform(0.3, 10, (max_op + 2, len_x))
-    save_corrcoef = np.max(np.abs(np.corrcoef(save_random_x[1:]) - np.eye(max_op + 1)))
-    for i in range(100000):
-        random_x = np.random.uniform(0.3, 10, (max_op + 2, len_x))
-        corrcoef = np.max(np.abs(np.corrcoef(random_x[1:]) - np.eye(max_op + 1)))
-        if save_corrcoef > corrcoef:
-            save_corrcoef = corrcoef
-            save_random_x = random_x
-    random_x = save_random_x.copy()
-    random_x[0] = 1
+    seed = int_nan  # notset
+    loop = 100000
+    upper = -10
+    lower = 10
+    save_corrcoef, random_x = make_random_x(max_op, len_x, seed=seed, loop=loop, upper=upper, lower=lower)
     logger.info(f"random_x corrcoef = {save_corrcoef}")
     base_dict = cache_load(max_op - 1)
     before_equations = np.array([[1], [0]], dtype="int8")
@@ -108,6 +100,7 @@ def make_final_cache(
     base_eq_id_list,
     check_change_x_tot,
     check_change_x_ones,
+    one_eq_calc_check_change_x,
     logger,
 ):
     # base_eq_id_list = merge_op,n_op1,id1,id2,changed_back_eq_id
@@ -149,6 +142,12 @@ def make_final_cache(
         if np.any(check_change_x_tot[:, j, 0] != int_nan):
             len_check_change_x_tot = j + 1
     np.savez(f"check_change_x_tot_{max_op}", check_change_x_tot[:, :len_check_change_x_tot])
+
+    len_one_eq_calc_check_change_x = 0
+    for j in range(one_eq_calc_check_change_x.shape[1]):
+        if np.any(one_eq_calc_check_change_x[:, j, 0] != int_nan):
+            len_one_eq_calc_check_change_x = j + 1
+    np.savez(f"one_eq_calc_check_change_x_{max_op}", one_eq_calc_check_change_x[:, :len_one_eq_calc_check_change_x])
 
     len_check_change_x_ones = 0
     for j in range(check_change_x_ones.shape[1]):
@@ -212,6 +211,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
     saved_check_exist_eq_list = np.empty((0, 2 * max_op + 1), dtype="int8")
     saved_check_exist_id_list = np.empty((0, 5), dtype="int64")
     saved_back_change_pattern = np.empty((0, max_op), dtype="int8")
+    saved_one_eq_calc_check_change_x = np.empty((0, (max_op * (max_op + 1)) // 2, 2), dtype="int8")
     if max_op != 7:
         saved_need_calc_list = np.empty((0), dtype="bool")
         saved_similar_num_list = np.empty((0, 2, random_x.shape[1]), dtype="float64")
@@ -250,6 +250,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                     check_change_x_ones,
                     check_exist_TF,
                     back_change_pattern,
+                    one_eq_calc_check_change_x,
                 ) = make_unique_equations_thread(
                     max_op,
                     n_op1,
@@ -313,6 +314,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                 base_eq_id_list,
                 check_change_x_tot,
                 check_change_x_ones,
+                one_eq_calc_check_change_x,
             ) = dim_reduction_info(
                 TF_list,
                 similar_num_list,
@@ -321,6 +323,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                 base_eq_id_list,
                 check_change_x_tot,
                 check_change_x_ones,
+                one_eq_calc_check_change_x,
             )
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
@@ -332,11 +335,15 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
             saved_base_eq_id_list = np.concatenate((saved_base_eq_id_list, base_eq_id_list))
             saved_check_change_x_tot = np.concatenate((saved_check_change_x_tot, check_change_x_tot))
             saved_check_change_x_ones = np.concatenate((saved_check_change_x_ones, check_change_x_ones))
+            saved_one_eq_calc_check_change_x = np.concatenate(
+                (saved_one_eq_calc_check_change_x, one_eq_calc_check_change_x)
+            )
             saved_check_exist_num_list = np.concatenate((saved_check_exist_num_list, check_exist_num))
             saved_check_exist_eq_list = np.concatenate((saved_check_exist_eq_list, check_exist_eq))
             saved_check_exist_id_list = np.concatenate((saved_check_exist_id_list, check_exist_id))
             saved_back_change_pattern = np.concatenate((saved_back_change_pattern, check_exist_back_change_pattern))
 
+        # print("before check_exist_step1 : ", np.sum(saved_need_calc_list), saved_need_calc_list.shape[0])
         logger.info(f"   check_exist_step1")
         how_loop = int(saved_check_exist_num_list.shape[0])
         size_arr_for_mem = how_loop
@@ -348,7 +355,9 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         header = "      "
         time1, time2 = time2, datetime.datetime.now()
         with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
-            check_exist_need_calc, TF = check_exist_step1(saved_similar_num_list, saved_check_exist_num_list, progress)
+            check_exist_need_calc, TF = check_exist_step1(
+                saved_similar_num_list, before_similar_num_list, saved_check_exist_num_list, progress
+            )
         time1, time2 = time2, datetime.datetime.now()
         logger.info(f"      time : {time2-time1}")
         saved_check_exist_num_list = saved_check_exist_num_list[TF]
@@ -356,13 +365,6 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         saved_check_exist_id_list = saved_check_exist_id_list[TF]
         saved_check_exist_need_calc_list = check_exist_need_calc[TF]
         saved_back_change_pattern = saved_back_change_pattern[TF]
-
-        indexes = np.argsort(saved_check_exist_num_list[:, 1, 0])
-        saved_check_exist_num_list = saved_check_exist_num_list[indexes].copy()
-        saved_check_exist_eq_list = saved_check_exist_eq_list[indexes].copy()
-        saved_check_exist_id_list = saved_check_exist_id_list[indexes].copy()
-        saved_check_exist_need_calc_list = saved_check_exist_need_calc_list[indexes].copy()
-        saved_back_change_pattern = saved_back_change_pattern[indexes].copy()
 
         logger.info(f"   check_exist_step2")
         how_loop = int(saved_check_exist_num_list.shape[0])
@@ -390,14 +392,20 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         header = "      "
         time1, time2 = time2, datetime.datetime.now()
         with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
-            TF, check_change_x_ones, check_change_x_tot = check_exist_step3(
-                num_threads,
+            (
+                TF,
+                check_change_x_ones,
+                check_change_x_tot,
+                saved_check_exist_need_calc_list,
+                one_eq_calc_check_change_x,
+            ) = check_exist_step3(
                 max_op,
                 random_x,
                 same,
                 saved_check_exist_eq_list,
                 saved_check_exist_id_list,
                 saved_back_change_pattern,
+                saved_check_exist_need_calc_list,
                 progress,
             )
 
@@ -410,6 +418,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         check_change_x_ones = check_change_x_ones[TF]
         check_change_x_tot = check_change_x_tot[TF]
         saved_check_exist_need_calc_list = saved_check_exist_need_calc_list[TF]
+        one_eq_calc_check_change_x = one_eq_calc_check_change_x[TF]
         same = same[TF]
 
         logger.info(f"   check_exist_step4")
@@ -429,11 +438,24 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         time1, time2 = time2, datetime.datetime.now()
         logger.info(f"      time : {time2-time1}")
 
+        # print(
+        #    "after check_exist_step4 : ",
+        #    np.sum(saved_check_exist_need_calc_list),
+        #    saved_check_exist_need_calc_list.shape[0],
+        # )
+
+        TF = one_eq_calc_check_change_x[:, 0, 0] != int_nan
+        TF &= ~saved_check_exist_need_calc_list
+        one_eq_calc_check_change_x[TF] = int_nan
+
         saved_equation_list = np.concatenate((saved_equation_list, saved_check_exist_eq_list))
         saved_need_calc_list = np.concatenate((saved_need_calc_list, saved_check_exist_need_calc_list))
         saved_base_eq_id_list = np.concatenate((saved_base_eq_id_list, saved_check_exist_id_list))
         saved_check_change_x_tot = np.concatenate((saved_check_change_x_tot, check_change_x_tot))
         saved_check_change_x_ones = np.concatenate((saved_check_change_x_ones, check_change_x_ones))
+        saved_one_eq_calc_check_change_x = np.concatenate(
+            (saved_one_eq_calc_check_change_x, one_eq_calc_check_change_x)
+        )
 
         sort_index = np.argsort(saved_need_calc_list.astype("int8"))[::-1]
 
@@ -442,6 +464,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         saved_base_eq_id_list = saved_base_eq_id_list[sort_index]
         saved_check_change_x_tot = saved_check_change_x_tot[sort_index]
         saved_check_change_x_ones = saved_check_change_x_ones[sort_index]
+        saved_one_eq_calc_check_change_x = saved_one_eq_calc_check_change_x[sort_index]
 
         make_final_cache(
             max_op,
@@ -450,6 +473,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
             saved_base_eq_id_list,
             saved_check_change_x_tot,
             saved_check_change_x_ones,
+            saved_one_eq_calc_check_change_x,
             logger,
         )
         Tcount = np.sum(saved_need_calc_list)
@@ -678,13 +702,16 @@ def make_unique_equations_thread(
     save_check_change_x_ones = np.full(
         (num_threads, loop_per_threads, (max_op * (max_op + 1)) // 2, 2), int_nan, dtype="int8"
     )
+    save_one_eq_calc_check_change_x = np.full(
+        (num_threads, loop_per_threads, (max_op * (max_op + 1)) // 2, 2), int_nan, dtype="int8"
+    )
     if n_op1 >= n_op2:
         ops = np.array([-1, -2, -3, -4])
     else:
         ops = np.array([-4])
     for thread_id in prange(num_threads):
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
-        cache_for_mask_x = np.zeros((tot_mask_x.shape[0], random_x.shape[1]), dtype="float64")
+        cache_for_mask_x = np.zeros((tot_mask_x.shape[0], 2, random_x.shape[1]), dtype="float64")
         counter = 0
         len_base_eq_arr1 = base_eq_arr1.shape[0]
         len_base_eq_arr2 = base_eq_arr2.shape[0]
@@ -720,7 +747,7 @@ def make_unique_equations_thread(
                         )  # 2 -> lambda x: x != border
 
                         save_similar_num = nb_calc_RPN(random_x, equation)
-                        cache_for_mask_x[0] = save_similar_num[1]
+                        cache_for_mask_x[0] = save_similar_num
                         if save_similar_num[0, 0] == int_nan:  # any_isinf, all_const
                             if count_True(equation, 5, 0) != 0:  # likely (a-a), not (1+1) ,  lambda x: x > border
                                 is_save, is_calc = False, False
@@ -733,7 +760,8 @@ def make_unique_equations_thread(
                         mask_x = dict_mask_x[eq_x_max]
                         TF_mask_x = np.ones(mask_x.shape[0], dtype="bool")
                         same_for_mask_x = np.zeros((mask_x.shape[0]), dtype="int64")
-                        c = 0
+                        norm_same_for_mask_x = np.zeros((mask_x.shape[0]), dtype="int64")
+                        c, norm_c = 0, 0
                         for k in range(mask_x.shape[0]):
                             for l in range(len_before_check_change_x1):
                                 if mask_x[k, before_check_change_x1[l, 0]] > mask_x[k, before_check_change_x1[l, 1]]:
@@ -748,15 +776,24 @@ def make_unique_equations_thread(
                                         TF_mask_x[k] = False
                                         break
                             similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
-                            same = False
+                            same, norm_same = False, False
+                            for l in range(norm_c):
+                                if isclose(cache_for_mask_x[l, 0, 0], similar_num[0, 0]):
+                                    if isclose_arr(cache_for_mask_x[l, 0], similar_num[0]):
+                                        norm_same_for_mask_x[k] = l
+                                        norm_same = True
+                            if not norm_same:
+                                norm_same_for_mask_x[k] = norm_c
+                                cache_for_mask_x[norm_c, 0] = similar_num[0]
+                                norm_c += 1
                             for l in range(c):
-                                if isclose(cache_for_mask_x[l, 0], similar_num[1, 0]):
-                                    if isclose_arr(cache_for_mask_x[l], similar_num[1]):
+                                if isclose(cache_for_mask_x[l, 1, 0], similar_num[1, 0]):
+                                    if isclose_arr(cache_for_mask_x[l, 1], similar_num[1]):
                                         same_for_mask_x[k] = l
                                         same = True
                             if not same:
                                 same_for_mask_x[k] = c
-                                cache_for_mask_x[c] = similar_num[1]
+                                cache_for_mask_x[c, 1] = similar_num[1]
                                 c += 1
                             if save_similar_num[0, 0] > similar_num[0, 0]:  # min
                                 save_similar_num[0] = similar_num[0]
@@ -764,111 +801,135 @@ def make_unique_equations_thread(
                                 save_similar_num[1] = similar_num[1]
                         if not np.any(TF_mask_x):
                             is_save = False
-                    if is_save:
-                        all_covered, add_check_change_x = make_check_change_x(
-                            equation,
-                            mask_x,
-                            same_for_mask_x,
-                            TF_mask_x,
-                            before_check_change_x1[:len_before_check_change_x1],
-                            changed_before_check_change_x2[:len_before_check_change_x2],
-                        )
-                    if is_save:
-                        if max_op + 1 != eq_x_max:  # except when using x of (number of operators + 1) type
-                            for j in range(head_before_similar_num_list.shape[0]):
-                                if isclose(save_similar_num[0, 0], head_before_similar_num_list[j]):
-                                    if isclose_arr(
-                                        save_similar_num[0],
-                                        before_similar_num_list[j, 0],
-                                    ):
-                                        is_calc = False
-                                        if isclose_arr(
-                                            save_similar_num[1],
-                                            before_similar_num_list[j, 1],
-                                        ):
-                                            is_save = False
-                                            break
-                                elif save_similar_num[0, 0] < head_before_similar_num_list[j]:
-                                    break
-
-                    if is_save:
-                        if not all_covered:
-                            check_exist_TF[thread_id, counter] = True
-                            save_similar_num_list[thread_id, counter] = save_similar_num
-                            save_equation_list[thread_id, counter] = equation
-                            save_base_eq_id_list[thread_id, counter, 0] = n_op1
-                            save_base_eq_id_list[thread_id, counter, 1] = id1
-                            save_base_eq_id_list[thread_id, counter, 2] = id2
-                            save_base_eq_id_list[thread_id, counter, 3] = make_change_x_id(
-                                back_change_pattern, max_op + 1
+                        if is_save:
+                            can_use, all_covered, add_check_change_x = make_check_change_x(
+                                mask_x, same_for_mask_x, TF_mask_x
                             )
-                            save_base_eq_id_list[thread_id, counter, 4] = merge_op
-                            save_back_change_pattern[thread_id, counter, : back_change_pattern.shape[0]] = (
-                                back_change_pattern
-                            )
-                            is_save = False
-                    if is_save:
-                        for j in range(head_saved_similar_num_list.shape[0]):
-                            if isclose(save_similar_num[0, 0], head_saved_similar_num_list[j]):
-                                if isclose_arr(
-                                    save_similar_num[0],
-                                    saved_similar_num_list[j, 0],
-                                ):
-                                    is_calc = False
-                                    if isclose_arr(
-                                        save_similar_num[1],
-                                        saved_similar_num_list[j, 1],
-                                    ):
-                                        is_save = False
-                                        break
-                            elif save_similar_num[0, 0] < head_saved_similar_num_list[j]:
-                                break
-                    if is_save:
-                        for j in range(counter):
-                            if head_save_similar_num_list[thread_id, j] != int_nan:
-                                if isclose(save_similar_num[0, 0], head_save_similar_num_list[thread_id, j]):
-                                    if isclose_arr(
-                                        save_similar_num[0],
-                                        save_similar_num_list[thread_id, j, 0],
-                                    ):
-                                        is_calc = False
+                            if not can_use:
+                                print("drop : make_check_change_x")
+                                print(equation)
+                                print(same_for_mask_x)
+                                print(norm_same_for_mask_x)
+                                print(TF_mask_x)
+                                print(can_use, all_covered, add_check_change_x)
+                                is_save = False
+                            if can_use and all_covered:
+                                can_use_norm, one_eq_calc_check_change_x = make_check_change_x_norm(
+                                    mask_x, norm_same_for_mask_x, TF_mask_x, add_check_change_x[0]
+                                )
+                                if not can_use_norm:
+                                    print("drop : make_check_change_x_norm")
+                                    print(equation)
+                                    print(same_for_mask_x)
+                                    print(norm_same_for_mask_x)
+                                    print(TF_mask_x)
+                                    print(can_use, all_covered, add_check_change_x, one_eq_calc_check_change_x)
+                                    is_save = False
+                            if equation.shape[0] == 9 and np.all(equation == np.array([1, 2, 1, -4, 2, -3, 1, -2, -4])):
+                                print(equation)
+                                print(mask_x, same_for_mask_x, norm_same_for_mask_x, TF_mask_x)
+                                print(can_use, all_covered, add_check_change_x, one_eq_calc_check_change_x)
+                            if is_save and max_op + 1 != eq_x_max:
+                                # except when using x of (number of operators + 1) type
+                                for j in range(head_before_similar_num_list.shape[0]):
+                                    if isclose(save_similar_num[0, 0], head_before_similar_num_list[j]):
                                         if isclose_arr(
-                                            save_similar_num[1],
-                                            save_similar_num_list[thread_id, j, 1],
+                                            save_similar_num[0],
+                                            before_similar_num_list[j, 0],
                                         ):
-                                            is_save = False
-                                            break
-                    if is_save:
-                        TF_list[thread_id, counter] = True
-                        save_similar_num_list[thread_id, counter] = save_similar_num
-                        head_save_similar_num_list[thread_id, counter] = save_similar_num[0, 0]
-                        save_need_calc_list[thread_id, counter] = is_calc
-                        save_equation_list[thread_id, counter] = equation
-                        save_base_eq_id_list[thread_id, counter, 0] = n_op1
-                        save_base_eq_id_list[thread_id, counter, 1] = id1
-                        save_base_eq_id_list[thread_id, counter, 2] = id2
-                        save_base_eq_id_list[thread_id, counter, 3] = make_change_x_id(back_change_pattern, max_op + 1)
-                        save_base_eq_id_list[thread_id, counter, 4] = merge_op
-
-                        n = 0
-                        for k in range(len_before_check_change_x1):
-                            save_check_change_x_tot[thread_id, counter, n] = before_check_change_x1[k]
-                            n += 1
-                        for k in range(len_before_check_change_x2):
-                            unique = True
-                            for l in range(len_before_check_change_x1):
-                                if changed_before_check_change_x2[k, 0] == before_check_change_x1[l, 0]:
-                                    if changed_before_check_change_x2[k, 1] == before_check_change_x1[l, 1]:
-                                        unique = False
+                                            is_calc = False
+                                            if isclose_arr(
+                                                save_similar_num[1],
+                                                before_similar_num_list[j, 1],
+                                            ):
+                                                is_save = False
+                                                break
+                                    elif save_similar_num[0, 0] < head_before_similar_num_list[j]:
                                         break
-                            if unique:
-                                save_check_change_x_tot[thread_id, counter, n] = changed_before_check_change_x2[k]
-                                n += 1
-                        for k in range(add_check_change_x.shape[0]):
-                            if add_check_change_x[k, 0] != int_nan:
-                                save_check_change_x_tot[thread_id, counter, n] = add_check_change_x[k]
-                                save_check_change_x_ones[thread_id, counter, k] = add_check_change_x[k]
-                                n += 1
+                            if is_save and (not all_covered):
+                                check_exist_TF[thread_id, counter] = True
+                                save_similar_num_list[thread_id, counter] = save_similar_num
+                                save_equation_list[thread_id, counter] = equation
+                                save_base_eq_id_list[thread_id, counter, 0] = n_op1
+                                save_base_eq_id_list[thread_id, counter, 1] = id1
+                                save_base_eq_id_list[thread_id, counter, 2] = id2
+                                save_base_eq_id_list[thread_id, counter, 3] = make_change_x_id(
+                                    back_change_pattern, max_op + 1
+                                )
+                                save_base_eq_id_list[thread_id, counter, 4] = merge_op
+                                save_back_change_pattern[thread_id, counter, : back_change_pattern.shape[0]] = (
+                                    back_change_pattern
+                                )
+                                is_save = False
+                            if is_save:
+                                for j in range(head_saved_similar_num_list.shape[0]):
+                                    if isclose(save_similar_num[0, 0], head_saved_similar_num_list[j]):
+                                        if isclose_arr(
+                                            save_similar_num[0],
+                                            saved_similar_num_list[j, 0],
+                                        ):
+                                            is_calc = False
+                                            if isclose_arr(
+                                                save_similar_num[1],
+                                                saved_similar_num_list[j, 1],
+                                            ):
+                                                is_save = False
+                                                break
+                                    elif save_similar_num[0, 0] < head_saved_similar_num_list[j]:
+                                        break
+                            if is_save:
+                                for j in range(counter):
+                                    if head_save_similar_num_list[thread_id, j] != int_nan:
+                                        if isclose(save_similar_num[0, 0], head_save_similar_num_list[thread_id, j]):
+                                            if isclose_arr(
+                                                save_similar_num[0],
+                                                save_similar_num_list[thread_id, j, 0],
+                                            ):
+                                                is_calc = False
+                                                if isclose_arr(
+                                                    save_similar_num[1],
+                                                    save_similar_num_list[thread_id, j, 1],
+                                                ):
+                                                    is_save = False
+                                                    break
+                            if is_save:
+                                TF_list[thread_id, counter] = True
+                                save_similar_num_list[thread_id, counter] = save_similar_num
+                                head_save_similar_num_list[thread_id, counter] = save_similar_num[0, 0]
+                                save_need_calc_list[thread_id, counter] = is_calc
+                                save_equation_list[thread_id, counter] = equation
+                                save_base_eq_id_list[thread_id, counter, 0] = n_op1
+                                save_base_eq_id_list[thread_id, counter, 1] = id1
+                                save_base_eq_id_list[thread_id, counter, 2] = id2
+                                save_base_eq_id_list[thread_id, counter, 3] = make_change_x_id(
+                                    back_change_pattern, max_op + 1
+                                )
+                                save_base_eq_id_list[thread_id, counter, 4] = merge_op
+                                save_one_eq_calc_check_change_x[
+                                    thread_id, counter, : one_eq_calc_check_change_x.shape[0]
+                                ] = one_eq_calc_check_change_x
+
+                                n = 0
+                                for k in range(len_before_check_change_x1):
+                                    save_check_change_x_tot[thread_id, counter, n] = before_check_change_x1[k]
+                                    n += 1
+                                for k in range(len_before_check_change_x2):
+                                    unique = True
+                                    for l in range(len_before_check_change_x1):
+                                        if changed_before_check_change_x2[k, 0] == before_check_change_x1[l, 0]:
+                                            if changed_before_check_change_x2[k, 1] == before_check_change_x1[l, 1]:
+                                                unique = False
+                                                break
+                                    if unique:
+                                        save_check_change_x_tot[thread_id, counter, n] = changed_before_check_change_x2[
+                                            k
+                                        ]
+                                        n += 1
+                                for k in range(add_check_change_x.shape[1]):
+                                    if add_check_change_x[0, k, 0] != int_nan:
+                                        save_check_change_x_tot[thread_id, counter, n] = add_check_change_x[0, k]
+                                        save_check_change_x_ones[thread_id, counter, k] = add_check_change_x[0, k]
+                                        n += 1
                     counter += 1
                     progress_proxy.update(1)
     return (
@@ -881,6 +942,7 @@ def make_unique_equations_thread(
         save_check_change_x_ones,
         check_exist_TF,
         save_back_change_pattern,
+        save_one_eq_calc_check_change_x,
     )
 
 
@@ -888,18 +950,14 @@ def make_unique_equations_thread(
 def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
-    threads_last_index = np.array([np.sum(TF_list[i]) for i in range(num_threads)])
-    sort_index = np.argsort(threads_last_index)
     return_similar_num_list = np.full((np.sum(TF_list), 2, similar_num_list.shape[3]), int_nan, dtype="float64")
-    return_similar_num_list[: np.sum(TF_list[sort_index[0]])] = similar_num_list[sort_index[0], TF_list[sort_index[0]]]
+    return_similar_num_list[: np.sum(TF_list[0])] = similar_num_list[0, TF_list[0]]
     head_return_similar_num_list = np.full((np.sum(TF_list)), int_nan, dtype="float64")
     head_similar_num_list = similar_num_list[:, :, 0, 0].copy()
-    head_return_similar_num_list[: np.sum(TF_list[sort_index[0]])] = head_similar_num_list[
-        sort_index[0], TF_list[sort_index[0]]
-    ]
-    last_index = np.sum(TF_list[sort_index[0]])
-    for target_index in sort_index[1:]:
-        true_index = np.random.permutation(np.arange(TF_list.shape[1])[TF_list[target_index]])
+    head_return_similar_num_list[: np.sum(TF_list[0])] = head_similar_num_list[0, TF_list[0]]
+    last_index = np.sum(TF_list[0])
+    for target_index in range(1, num_threads):
+        true_index = np.arange(TF_list.shape[1])[TF_list[target_index]]
         for thread_id in prange(num_threads):
             true_index_thread = true_index[thread_id::num_threads].copy()
             for i in true_index_thread:
@@ -918,19 +976,23 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
                                 TF_list[target_index, i] = False
                                 break
                 progress_proxy.update(1)
-        return_similar_num_list[last_index : last_index + np.sum(TF_list[target_index])] = similar_num_list[
-            target_index, TF_list[target_index]
-        ]
-        head_return_similar_num_list[last_index : last_index + np.sum(TF_list[target_index])] = head_similar_num_list[
-            target_index, TF_list[target_index]
-        ]
-        last_index += np.sum(TF_list[target_index])
+        next_index = last_index + np.sum(TF_list[target_index])
+        return_similar_num_list[last_index:next_index] = similar_num_list[target_index, TF_list[target_index]]
+        head_return_similar_num_list[last_index:next_index] = head_similar_num_list[target_index, TF_list[target_index]]
+        last_index = next_index
     return TF_list, need_calc_list
 
 
 @njit(parallel=True, error_model="numpy")
 def dim_reduction_info(
-    TF_list, similar_num_list, need_calc_list, equation_list, base_eq_id_list, check_change_x_tot, check_change_x_ones
+    TF_list,
+    similar_num_list,
+    need_calc_list,
+    equation_list,
+    base_eq_id_list,
+    check_change_x_tot,
+    check_change_x_ones,
+    one_eq_calc_check_change_x,
 ):
     int_nan = -100
     sum_TF = np.sum(TF_list)
@@ -941,15 +1003,19 @@ def dim_reduction_info(
     return_need_calc_list = np.zeros((sum_TF), dtype="bool")
     return_check_change_x_tot = np.full((sum_TF, check_change_x_tot.shape[2], 2), int_nan, dtype="int8")
     return_check_change_x_ones = np.full((sum_TF, check_change_x_ones.shape[2], 2), int_nan, dtype="int8")
+    return_one_eq_calc_check_change_x = np.full((sum_TF, one_eq_calc_check_change_x.shape[2], 2), int_nan, dtype="int8")
     last_index = 0
-    for thread_id in range(num_threads):
-        indexes = np.arange(TF_list.shape[1])[TF_list[thread_id]]
-        return_similar_num_list[last_index : last_index + indexes.shape[0]] = similar_num_list[thread_id, indexes]
-        return_equation_list[last_index : last_index + indexes.shape[0]] = equation_list[thread_id, indexes]
-        return_base_eq_id_list[last_index : last_index + indexes.shape[0]] = base_eq_id_list[thread_id, indexes]
-        return_need_calc_list[last_index : last_index + indexes.shape[0]] = need_calc_list[thread_id, indexes]
-        return_check_change_x_tot[last_index : last_index + indexes.shape[0]] = check_change_x_tot[thread_id, indexes]
-        return_check_change_x_ones[last_index : last_index + indexes.shape[0]] = check_change_x_ones[thread_id, indexes]
+    for i in range(TF_list.shape[1]):
+        indexes = np.arange(TF_list.shape[0])[TF_list[:, i]]
+        return_similar_num_list[last_index : last_index + indexes.shape[0]] = similar_num_list[indexes, i]
+        return_equation_list[last_index : last_index + indexes.shape[0]] = equation_list[indexes, i]
+        return_base_eq_id_list[last_index : last_index + indexes.shape[0]] = base_eq_id_list[indexes, i]
+        return_need_calc_list[last_index : last_index + indexes.shape[0]] = need_calc_list[indexes, i]
+        return_check_change_x_tot[last_index : last_index + indexes.shape[0]] = check_change_x_tot[indexes, i]
+        return_check_change_x_ones[last_index : last_index + indexes.shape[0]] = check_change_x_ones[indexes, i]
+        return_one_eq_calc_check_change_x[last_index : last_index + indexes.shape[0]] = one_eq_calc_check_change_x[
+            indexes, i
+        ]
         last_index += indexes.shape[0]
     return (
         return_equation_list,
@@ -958,6 +1024,7 @@ def dim_reduction_info(
         return_base_eq_id_list,
         return_check_change_x_tot,
         return_check_change_x_ones,
+        return_one_eq_calc_check_change_x,
     )
 
 
@@ -971,12 +1038,12 @@ def make_check_exist_info(check_exist_TF, similar_num_list, equation_list, base_
     return_check_exist_id = np.full((sum_check_exist, 5), int_nan, dtype="int64")
     return_back_change_pattern = np.full((sum_check_exist, back_change_pattern.shape[2]), int_nan, dtype="int8")
     last_index = 0
-    for thread_id in range(num_threads):
-        indexes = np.arange(check_exist_TF.shape[1])[check_exist_TF[thread_id]]
-        return_check_exist_num[last_index : last_index + indexes.shape[0]] = similar_num_list[thread_id, indexes]
-        return_check_exist_eq[last_index : last_index + indexes.shape[0]] = equation_list[thread_id, indexes]
-        return_check_exist_id[last_index : last_index + indexes.shape[0]] = base_eq_id_list[thread_id, indexes]
-        return_back_change_pattern[last_index : last_index + indexes.shape[0]] = back_change_pattern[thread_id, indexes]
+    for i in range(check_exist_TF.shape[1]):
+        indexes = np.arange(num_threads)[check_exist_TF[:, i]]
+        return_check_exist_num[last_index : last_index + indexes.shape[0]] = similar_num_list[indexes, i]
+        return_check_exist_eq[last_index : last_index + indexes.shape[0]] = equation_list[indexes, i]
+        return_check_exist_id[last_index : last_index + indexes.shape[0]] = base_eq_id_list[indexes, i]
+        return_back_change_pattern[last_index : last_index + indexes.shape[0]] = back_change_pattern[indexes, i]
         last_index += indexes.shape[0]
     return (
         return_check_exist_num[:last_index],
@@ -987,23 +1054,34 @@ def make_check_exist_info(check_exist_TF, similar_num_list, equation_list, base_
 
 
 @njit(parallel=True, error_model="numpy")
-def check_exist_step1(similar_num_list, check_exist_num_arr, progress_proxy):
+def check_exist_step1(similar_num_list, before_similar_num_list, check_exist_num_arr, progress_proxy):
     int_nan = -100
     head_saved_similar_num_list = similar_num_list[:, 0, 0].copy()
+    head_before_similar_num_list = before_similar_num_list[:, 0, 0].copy()
     len_return = check_exist_num_arr.shape[0]
     check_exist_need_calc = np.zeros((len_return), dtype="bool")
     TF = np.zeros((len_return), dtype="bool")
     for i in prange(check_exist_num_arr.shape[0]):
         is_calc, is_save = True, True
-        for j in range(head_saved_similar_num_list.shape[0]):
-            if isclose(check_exist_num_arr[i, 0, 0], head_saved_similar_num_list[j]):
-                if isclose_arr(check_exist_num_arr[i, 0], similar_num_list[j, 0]):
+        for j in range(head_before_similar_num_list.shape[0]):
+            if isclose(check_exist_num_arr[i, 0, 0], head_before_similar_num_list[j]):
+                if isclose_arr(check_exist_num_arr[i, 0], before_similar_num_list[j, 0]):
                     is_calc = False
-                    if isclose_arr(check_exist_num_arr[i, 1], similar_num_list[j, 1]):
+                    if isclose_arr(check_exist_num_arr[i, 1], before_similar_num_list[j, 1]):
                         is_save = False
                         break
-            elif check_exist_num_arr[i, 0, 0] < head_saved_similar_num_list[j]:
+            elif check_exist_num_arr[i, 0, 0] < head_before_similar_num_list[j]:
                 break
+        if is_save:
+            for j in range(head_saved_similar_num_list.shape[0]):
+                if isclose(check_exist_num_arr[i, 0, 0], head_saved_similar_num_list[j]):
+                    if isclose_arr(check_exist_num_arr[i, 0], similar_num_list[j, 0]):
+                        is_calc = False
+                        if isclose_arr(check_exist_num_arr[i, 1], similar_num_list[j, 1]):
+                            is_save = False
+                            break
+                elif check_exist_num_arr[i, 0, 0] < head_saved_similar_num_list[j]:
+                    break
         check_exist_need_calc[i] = is_calc
         TF[i] = is_save
         progress_proxy.update(1)
@@ -1014,19 +1092,20 @@ def check_exist_step1(similar_num_list, check_exist_num_arr, progress_proxy):
 def check_exist_step2(num_threads, check_exist_num_arr, progress_proxy):
     int_nan = -100
     n_check_exist = check_exist_num_arr.shape[0]
+    arg_index = np.argsort(check_exist_num_arr[:, 1, 0])
     same = np.full((n_check_exist), int_nan, dtype="int64")
     count = 0
     filled_count = np.zeros(num_threads, dtype="int64")
     for i in range(n_check_exist):
-        if same[i] == int_nan:
-            same[i] = count
+        if same[arg_index[i]] == int_nan:
+            same[arg_index[i]] = count
             filled_count[:] = 0
             for thread_id in prange(num_threads):
                 for j in range(i + 1 + thread_id, n_check_exist, num_threads):
-                    if same[j] == int_nan:
-                        if isclose(check_exist_num_arr[i, 1, 0], check_exist_num_arr[j, 1, 0]):
-                            if isclose_arr(check_exist_num_arr[i, 1], check_exist_num_arr[j, 1]):
-                                same[j] = count
+                    if same[arg_index[j]] == int_nan:
+                        if isclose(check_exist_num_arr[arg_index[i], 1, 0], check_exist_num_arr[arg_index[j], 1, 0]):
+                            if isclose_arr(check_exist_num_arr[arg_index[i], 1], check_exist_num_arr[arg_index[j], 1]):
+                                same[arg_index[j]] = count
                                 filled_count[thread_id] += 1
                         else:
                             break
@@ -1037,13 +1116,13 @@ def check_exist_step2(num_threads, check_exist_num_arr, progress_proxy):
 
 @njit(parallel=True, error_model="numpy")
 def check_exist_step3(
-    num_threads,
     max_op,
     random_x,
     arr_same,
     check_exist_eq,
     check_exist_id,
     arr_back_change_pattern,
+    check_exist_need_calc,
     progress_proxy,
 ):
     dict_mask_x = make_dict_mask_x(max_op + 1)
@@ -1059,47 +1138,63 @@ def check_exist_step3(
     save_check_change_x_ones = np.full(
         (check_exist_eq.shape[0], (max_op * (max_op + 1)) // 2, 2), int_nan, dtype="int8"
     )
-    for thread_id in prange(num_threads):
-        for i in range(thread_id, loop, num_threads):
-            indexes = arange[arr_same == i]
-            mat_use, dict_check_change_x = sub_check_exist_step3(
-                max_op,
-                random_x,
-                check_exist_eq,
-                check_exist_id,
-                arr_back_change_pattern,
-                dict_mask_x,
-                before_check_change_x_dict,
-                indexes,
-            )
-            for m in range(mat_use.shape[0]):
-                if mat_use[m, 0] != int_nan:
-                    TF[indexes[mat_use[m, 0]]] = True
-                    add = dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]]
-                    len_add = count_True(add[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
-                    n_op1 = check_exist_id[indexes[mat_use[m, 0]], 0]
-                    id1 = check_exist_id[indexes[mat_use[m, 0]], 1]
-                    n_op2 = max_op - 1 - n_op1
-                    id2 = check_exist_id[indexes[mat_use[m, 0]], 2]
-                    back_change_pattern = arr_back_change_pattern[indexes[mat_use[m, 0]]]
-                    before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
-                    len_before1 = count_True(before_check_change_x1[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
-                    before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
-                    changed_before_check_change_x2 = make_eq(before_check_change_x2, back_change_pattern)
-                    len_before2 = count_True(
-                        changed_before_check_change_x2[:, 0], 2, int_nan
-                    )  # 2 -> lambda x: x != border
-                    save_check_change_x_ones[indexes[mat_use[m, 0]], :len_add] = add[:len_add]
-                    save_check_change_x_tot[indexes[mat_use[m, 0]], :len_before1] = before_check_change_x1[:len_before1]
-                    save_check_change_x_tot[indexes[mat_use[m, 0]], len_before1 : len_before1 + len_before2] = (
-                        changed_before_check_change_x2[:len_before2]
+    save_one_eq_calc_check_change_x = np.full(
+        (check_exist_eq.shape[0], (max_op * (max_op + 1)) // 2, 2), int_nan, dtype="int8"
+    )
+    for i in prange(loop):
+        indexes = arange[arr_same == i]
+        mat_use, dict_check_change_x, calc, dict_one_eq_calc_check_change_x = sub_check_exist_step3(
+            max_op,
+            random_x,
+            check_exist_eq,
+            check_exist_id,
+            arr_back_change_pattern,
+            dict_mask_x,
+            before_check_change_x_dict,
+            indexes,
+        )
+        len_calc = count_True(calc, 2, int_nan)  # 2 -> lambda x: x != border
+        len_mat_use = count_True(mat_use[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
+        for m in range(len_mat_use):
+            if check_exist_need_calc[indexes[mat_use[m, 0]]]:
+                if not m in calc[:len_calc]:
+                    # print("drop : ", check_exist_eq[indexes[mat_use[m, 0]]])
+                    check_exist_need_calc[indexes[mat_use[m, 0]]] = False
+                else:
+                    one_eq_calc_check_change_x = dict_one_eq_calc_check_change_x[m]
+                    save_one_eq_calc_check_change_x[indexes[mat_use[m, 0]], : one_eq_calc_check_change_x.shape[0]] = (
+                        one_eq_calc_check_change_x
                     )
-                    save_check_change_x_tot[
-                        indexes[mat_use[m, 0]],
-                        len_before1 + len_before2 : len_before1 + len_before2 + len_add,
-                    ] = add[:len_add]
-            progress_proxy.update(1)
-    return TF, save_check_change_x_ones, save_check_change_x_tot
+            TF[indexes[mat_use[m, 0]]] = True
+            add = dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]]
+            len_add = count_True(add[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
+            n_op1 = check_exist_id[indexes[mat_use[m, 0]], 0]
+            id1 = check_exist_id[indexes[mat_use[m, 0]], 1]
+            n_op2 = max_op - 1 - n_op1
+            id2 = check_exist_id[indexes[mat_use[m, 0]], 2]
+            back_change_pattern = arr_back_change_pattern[indexes[mat_use[m, 0]]]
+            before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
+            len_before1 = count_True(before_check_change_x1[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
+            before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
+            changed_before_check_change_x2 = make_eq(before_check_change_x2, back_change_pattern)
+            len_before2 = count_True(changed_before_check_change_x2[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
+            save_check_change_x_ones[indexes[mat_use[m, 0]], :len_add] = add[:len_add]
+            save_check_change_x_tot[indexes[mat_use[m, 0]], :len_before1] = before_check_change_x1[:len_before1]
+            save_check_change_x_tot[indexes[mat_use[m, 0]], len_before1 : len_before1 + len_before2] = (
+                changed_before_check_change_x2[:len_before2]
+            )
+            save_check_change_x_tot[
+                indexes[mat_use[m, 0]],
+                len_before1 + len_before2 : len_before1 + len_before2 + len_add,
+            ] = add[:len_add]
+        progress_proxy.update(1)
+    return (
+        TF,
+        save_check_change_x_ones,
+        save_check_change_x_tot,
+        check_exist_need_calc,
+        save_one_eq_calc_check_change_x,
+    )
 
 
 @njit(error_model="numpy")
@@ -1124,26 +1219,42 @@ def sub_check_exist_step3(
     mat_use = np.empty((indexes.shape[0], 2), dtype="int64")
     return_mat_use = np.empty((indexes.shape[0], 2), dtype="int64")
     cache_for_mask_x = np.zeros((mask_x.shape[0], random_x.shape[1]), dtype="float64")
+    norm_cache_for_mask_x = np.zeros((mask_x.shape[0], random_x.shape[1]), dtype="float64")
     TF_mask_x = np.ones((indexes.shape[0], mask_x.shape[0]), dtype="bool")
     same_for_mask_x = np.zeros((mask_x.shape[0]), dtype="int64")
+    norm_same_for_mask_x = np.zeros((mask_x.shape[0]), dtype="int64")
     dict_check_change_x = dict()
-    n = 0
+    n, norm_n = 0, 0
     for k in range(mask_x.shape[0]):
-        similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[1]
-        same = False
-        for l in range(k):
-            if isclose(cache_for_mask_x[l, 0], similar_num[0]):
-                if isclose_arr(cache_for_mask_x[l], similar_num):
+        similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
+        norm_same, same = False, False
+        for l in range(norm_n):
+            if isclose(norm_cache_for_mask_x[l, 0], similar_num[0, 0]):
+                if isclose_arr(norm_cache_for_mask_x[l], similar_num[0]):
+                    norm_same = True
+                    break
+        if not norm_same:
+            norm_cache_for_mask_x[norm_n] = similar_num[0]
+            norm_n += 1
+        for l in range(n):
+            if isclose(cache_for_mask_x[l, 0], similar_num[1, 0]):
+                if isclose_arr(cache_for_mask_x[l], similar_num[1]):
                     same = True
                     break
         if not same:
-            cache_for_mask_x[n] = similar_num
+            cache_for_mask_x[n] = similar_num[1]
             n += 1
     cache_for_mask_x = cache_for_mask_x[:n]
+    norm_cache_for_mask_x = norm_cache_for_mask_x[:norm_n]
+    len_norm_cache_for_mask_x = norm_n
     len_cache_for_mask_x = n
     checker = np.empty(len_cache_for_mask_x, dtype="bool")
+    norm_checker = np.empty(len_norm_cache_for_mask_x, dtype="bool")
+    calc = np.full((indexes.shape[0]), int_nan, dtype="int64")
+    dict_one_eq_calc_check_change_x = dict()
 
     same_num_index = np.empty((indexes.shape[0], mask_x.shape[0]), dtype="int64")
+    same_norm_num_index = np.empty((indexes.shape[0], mask_x.shape[0]), dtype="int64")
     patterns = np.empty((indexes.shape[0]), dtype="int64")
     use = np.full((indexes.shape[0]), int_nan, dtype="int64")
     n_max_mat_covered_num = np.empty((indexes.shape[0]), dtype="int64")
@@ -1163,7 +1274,6 @@ def sub_check_exist_step3(
         len_before_check_change_x2 = count_True(
             changed_before_check_change_x2[:, 0], 2, int_nan
         )  # 2 -> lambda x: x != border
-        # c = 0
         TF_mask_x[j] = True
         for k in range(mask_x.shape[0]):
             for l in range(len_before_check_change_x1):
@@ -1178,17 +1288,27 @@ def sub_check_exist_step3(
                     ):
                         TF_mask_x[j, k] = False
                         break
-            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)[1]
+            similar_num = nb_calc_RPN(random_x[mask_x[k]], equation)
+            for l in range(len_norm_cache_for_mask_x):
+                if isclose(norm_cache_for_mask_x[l, 0], similar_num[0, 0]):
+                    if isclose_arr(norm_cache_for_mask_x[l], similar_num[0]):
+                        norm_same_for_mask_x[k] = l
+                        break
             for l in range(len_cache_for_mask_x):
-                if isclose(cache_for_mask_x[l, 0], similar_num[0]):
-                    if isclose_arr(cache_for_mask_x[l], similar_num):
+                if isclose(cache_for_mask_x[l, 0], similar_num[1, 0]):
+                    if isclose_arr(cache_for_mask_x[l], similar_num[1]):
                         same_for_mask_x[k] = l
+                        break
         same_num_index[j] = same_for_mask_x
-        arr_check_change_x = sub_make_check_change_x(mask_x, same_for_mask_x, TF_mask_x[j])[1]
+        same_norm_num_index[j] = norm_same_for_mask_x
+        arr_check_change_x = make_check_change_x(mask_x, same_for_mask_x, TF_mask_x[j])[2]
         dict_check_change_x[j] = arr_check_change_x
         patterns[j] = arr_check_change_x.shape[0]
     n_all_pattern = np.max(patterns)
     mat_covered_num = np.zeros((indexes.shape[0], n_all_pattern, len_cache_for_mask_x), dtype="bool")
+    mat_covered_norm_num = np.zeros((indexes.shape[0], n_all_pattern, len_norm_cache_for_mask_x), dtype="bool")
+    mat_n_covered_num = np.zeros((indexes.shape[0], n_all_pattern), dtype="int64")
+
     for j in range(indexes.shape[0]):
         arr_check_change_x = dict_check_change_x[j]
         for k in range(patterns[j]):
@@ -1202,17 +1322,25 @@ def sub_check_exist_step3(
                             check = False
                             break
                     if check:
-                        mat_covered_num[j, k, same_num_index[j, l]] = True
-        n_max_ = np.sum(mat_covered_num[j, 0])
-        n_min_ = n_max_
-        for k in range(1, patterns[j]):
-            n_ = np.sum(mat_covered_num[j, k])
-            if n_max_ < n_:
-                n_max_ = n_
-            if n_min_ > n_:
-                n_min_ = n_
-        n_max_mat_covered_num[j] = n_max_
-        n_min_mat_covered_num[j] = n_min_
+                        if mat_covered_num[j, k, same_num_index[j, l]]:
+                            print("ERROR : mat_covered_num")
+                            print(check_exist_eq[indexes[j]])
+                            print(same_num_index[j], same_norm_num_index[j], TF_mask_x[j])
+                            print(make_check_change_x(mask_x, same_num_index[j], TF_mask_x[j]))
+                        else:
+                            mat_covered_num[j, k, same_num_index[j, l]] = True
+                        if not mat_covered_norm_num[j, k, same_norm_num_index[j, l]]:
+                            mat_covered_norm_num[j, k, same_norm_num_index[j, l]] = True
+                        # if mat_covered_norm_num[j, k, same_norm_num_index[j, l]]:
+                        # print("ERROR : mat_covered_norm_num")
+                        # print(check_exist_eq[indexes[j]])
+                        # print(same_num_index[j], same_norm_num_index[j], TF_mask_x[j])
+                        # print(make_check_change_x(mask_x, same_num_index[j], TF_mask_x[j]))
+                        # else:
+                        # mat_covered_norm_num[j, k, same_norm_num_index[j, l]] = True
+            mat_n_covered_num[j, k] = np.sum(mat_covered_num[j, k])
+        n_max_mat_covered_num[j] = np.max(mat_n_covered_num[j, : patterns[j]])
+        n_min_mat_covered_num[j] = np.min(mat_n_covered_num[j, : patterns[j]])
 
     # same eqs (1 op is safe)
     same_eq_shape_S = np.full((indexes.shape[0]), int_nan, dtype="int64")
@@ -1304,13 +1432,14 @@ def sub_check_exist_step3(
                 arr_n_max[i] = j
                 break
     for i in range(2, indexes.shape[0] + 1):
-        for j in np.arange(len_n_same_eq_shape_L)[np.argsort(arr_n_selected_indexes)]:
+        for j in range(len_n_same_eq_shape_L):
             if (arr_n_min[j] <= i) and (i <= arr_n_max[j]):
                 selected_indexes = arange[same_eq_shape_L == j]
                 selected_indexes = selected_indexes[np.argsort(same_eq_shape_S[selected_indexes])]
                 n_selected_indexes = selected_indexes.shape[0]
                 for k in range(i):
                     use[k] = k
+                """
                 combination_1 = 1
                 n_C = n_selected_indexes
                 r_C = min(n_C - i, i)
@@ -1319,181 +1448,246 @@ def sub_check_exist_step3(
                 for k in range(r_C):
                     combination_1 //= r_C - k
                 for _ in range(combination_1):
-                    combination_2 = 1
-                    for l in range(i):
-                        combination_2 *= patterns[selected_indexes[use[l]]]
-                    for l in range(combination_2):
-                        print_counter += 1
-                        """
-                        if print_counter == lim_print_counter:
-                            print("many loop : over ", lim_print_counter)
-                            print("many loop : aiming, same eqs")
-                            txt_n_same_eq_shape_L = []
-                            for t in range(np.max(same_eq_shape_L) + 1):
-                                txt_n_same_eq_shape_L.append(str(t) + " : " + str(np.sum(same_eq_shape_L == t)))
-                            print(
-                                "   tot_eqs = ",
-                                indexes.shape[0],
-                                ", n_same_eq_shape = ",
-                                ", ".join(txt_n_same_eq_shape_L),
-                            )
-                            for t in range(indexes.shape[0]):
-                                print(
-                                    "   eq : ",
-                                    check_exist_eq[indexes[t]],
-                                    ", same_eq_shape : ",
-                                    (same_eq_shape_L[t], same_eq_shape_S[t]),
-                                )
-                        """
-                        check_l = True
-                        cp_l = l
-                        checker[:] = False
-                        for m in range(i):
-                            set_num_l = cp_l % patterns[selected_indexes[use[m]]]
-                            for n in range(len_cache_for_mask_x):
-                                if mat_covered_num[selected_indexes[use[m]], set_num_l, n]:
-                                    if checker[n]:
-                                        check_l = False
-                                        break
-                                    else:
-                                        checker[n] = True
-                            if check_l:
-                                mat_use[m, 0] = selected_indexes[use[m]]
-                                mat_use[m, 1] = set_num_l
-                                cp_l //= patterns[mat_use[m, 0]]
-                            else:
-                                break
-                        if check_l:
-                            if np.all(checker):
-                                if print_counter >= lim_print_counter:
-                                    # """# print
-                                    print()
-                                    print("many loop : over ", print_counter)
-                                    print("end : aiming, same eqs (1 op is safe)")
-                                    print("   selected : aiming, same eqs (1 op is safe)")
-                                    txt_n_same_eq_shape_L = []
-                                    for t in range(np.max(same_eq_shape_L) + 1):
-                                        txt_n_same_eq_shape_L.append(str(t) + " : " + str(np.sum(same_eq_shape_L == t)))
-                                    print(
-                                        "   tot_eqs = ",
-                                        indexes.shape[0],
-                                        ", n_same_eq_shape = ",
-                                        ", ".join(txt_n_same_eq_shape_L),
-                                        ", tot_pattern = ",
-                                        len_cache_for_mask_x,
-                                    )
-                                    for m in range(i):
-                                        add = dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]]
-                                        len_add = count_True(add[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
-                                        n_op1 = check_exist_id[indexes[mat_use[m, 0]], 0]
-                                        id1 = check_exist_id[indexes[mat_use[m, 0]], 1]
-                                        n_op2 = max_op - 1 - n_op1
-                                        id2 = check_exist_id[indexes[mat_use[m, 0]], 2]
-                                        back_change_pattern = arr_back_change_pattern[indexes[mat_use[m, 0]]]
-                                        before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
-                                        len_before1 = count_True(
-                                            before_check_change_x1[:, 0], 2, int_nan
-                                        )  # 2 -> lambda x: x != border
-                                        before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
-                                        changed_before_check_change_x2 = make_eq(
-                                            before_check_change_x2, back_change_pattern
-                                        )
-                                        len_before2 = count_True(
-                                            changed_before_check_change_x2[:, 0], 2, int_nan
-                                        )  # 2 -> lambda x: x != border
-                                        print(
-                                            "      eq : ",
-                                            check_exist_eq[indexes[mat_use[m, 0]]],
-                                            ", same_eq_shape : ",
-                                            (same_eq_shape_L[mat_use[m, 0]], same_eq_shape_S[mat_use[m, 0]]),
-                                        )
-                                        l_before_check_change_x = []
-                                        for t in range(len_before1):
-                                            l_before_check_change_x.append(
-                                                [
-                                                    int(before_check_change_x1[t, 0]),
-                                                    int(before_check_change_x1[t, 1]),
-                                                ]
-                                            )
-                                        for t in range(len_before2):
-                                            l_before_check_change_x.append(
-                                                [
-                                                    int(changed_before_check_change_x2[t, 0]),
-                                                    int(changed_before_check_change_x2[t, 1]),
-                                                ]
-                                            )
-                                        print(
-                                            "      before_check : ",
-                                            l_before_check_change_x,
-                                            ", covered num : ",
-                                            n_min_mat_covered_num[mat_use[m, 0]],
-                                            "~",
-                                            n_max_mat_covered_num[mat_use[m, 0]],
-                                        )
-                                        l_add = []
-                                        for t in range(len_add):
-                                            l_add.append(add[t])
-                                        print("      add : ", l_add, ", pattern : ", patterns[mat_use[m, 0]])
-                                    print()
-                                    print("   droped")
-                                    for m in range(indexes.shape[0]):
-                                        if same_eq_shape_L[m] == i:
-                                            if m in selected_indexes[use[:j]]:
-                                                continue
-                                        n_op1 = check_exist_id[indexes[m], 0]
-                                        id1 = check_exist_id[indexes[m], 1]
-                                        n_op2 = max_op - 1 - n_op1
-                                        id2 = check_exist_id[indexes[m], 2]
-                                        back_change_pattern = arr_back_change_pattern[indexes[m]]
-                                        before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
-                                        len_before1 = count_True(
-                                            before_check_change_x1[:, 0], 2, int_nan
-                                        )  # 2 -> lambda x: x != border
-                                        before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
-                                        changed_before_check_change_x2 = make_eq(
-                                            before_check_change_x2, back_change_pattern
-                                        )
-                                        len_before2 = count_True(
-                                            changed_before_check_change_x2[:, 0], 2, int_nan
-                                        )  # 2 -> lambda x: x != border
-                                        print(
-                                            "      eq : ",
-                                            check_exist_eq[indexes[m]],
-                                            ", same_eq_shape : ",
-                                            (same_eq_shape_L[m], same_eq_shape_S[m]),
-                                        )
-                                        l_before_check_change_x = []
-                                        for t in range(len_before1):
-                                            l_before_check_change_x.append(
-                                                [
-                                                    int(before_check_change_x1[t, 0]),
-                                                    int(before_check_change_x1[t, 1]),
-                                                ]
-                                            )
-                                        for t in range(len_before2):
-                                            l_before_check_change_x.append(
-                                                [
-                                                    int(changed_before_check_change_x2[t, 0]),
-                                                    int(changed_before_check_change_x2[t, 1]),
-                                                ]
-                                            )
-                                        print(
-                                            "      before_check : ",
-                                            l_before_check_change_x,
-                                            ", pattern : ",
-                                            patterns[m],
-                                            ", covered num : ",
-                                            n_min_mat_covered_num[m],
-                                            "~",
-                                            n_max_mat_covered_num[m],
-                                        )
-                                    print()
-                                    # """  # print
+                """
+                while True:
+                    if np.sum(n_max_mat_covered_num[selected_indexes[use[:i]]]) >= len_cache_for_mask_x:
+                        if len_cache_for_mask_x >= np.sum(n_min_mat_covered_num[selected_indexes[use[:i]]]):
+                            combination_2 = 1
+                            for l in range(i):
+                                combination_2 *= patterns[selected_indexes[use[l]]]
+                            for l in range(combination_2):
+                                sum_pattern = 0
+                                cp_l = l
                                 for m in range(i):
-                                    return_mat_use[m, 0] = mat_use[m, 0]
-                                    return_mat_use[m, 1] = mat_use[m, 1]
-                                return_mat_use[i:] = int_nan
-                                return return_mat_use, dict_check_change_x
+                                    one_id = selected_indexes[use[m]]
+                                    one_pattern = patterns[one_id]
+                                    set_num_l = cp_l % one_pattern
+                                    sum_pattern += mat_n_covered_num[one_id, set_num_l]
+                                    cp_l //= one_pattern
+                                if sum_pattern == len_cache_for_mask_x:
+                                    print_counter += 1
+                                    check_l = True
+                                    cp_l = l
+                                    checker[:] = False
+                                    for m in range(i):
+                                        one_id = selected_indexes[use[m]]
+                                        one_pattern = patterns[one_id]
+                                        set_num_l = cp_l % one_pattern
+                                        for n in range(len_cache_for_mask_x):
+                                            if mat_covered_num[one_id, set_num_l, n]:
+                                                if checker[n]:
+                                                    check_l = False
+                                                    break
+                                                else:
+                                                    checker[n] = True
+                                        if check_l:
+                                            mat_use[m, 0] = one_id
+                                            mat_use[m, 1] = set_num_l
+                                            cp_l //= one_pattern
+                                        else:
+                                            break
+                                    if check_l and np.all(checker):
+                                        norm_check = len_cache_for_mask_x == len_norm_cache_for_mask_x
+                                        if norm_check:
+                                            for m in range(i):
+                                                calc[m] = m
+                                            calc[i:] = int_nan
+                                        else:
+                                            for m in range(1, i + 1):
+                                                if not norm_check:
+                                                    for n in range(m):
+                                                        calc[n] = n
+                                                    calc[m:] = int_nan
+                                                    while True:
+                                                        norm_checker[:] = False
+                                                        check_n = True
+                                                        for n in calc[:m]:
+                                                            if check_n:
+                                                                for o in range(len_norm_cache_for_mask_x):
+                                                                    if mat_covered_norm_num[
+                                                                        mat_use[n, 0], mat_use[n, 1], o
+                                                                    ]:
+                                                                        norm_checker[o] = True
+                                                                        # if norm_checker[o]:
+                                                                        #    check_n = False
+                                                                        #    break
+                                                                        # else:
+                                                                        #    norm_checker[o] = True
+                                                        # if check_n:
+                                                        if np.all(norm_checker):
+                                                            norm_check = True
+                                                            break
+                                                        done_plus_one = False
+                                                        for n in range(m - 1, -1, -1):
+                                                            if calc[n] != i - (m - n):
+                                                                calc[n] += 1
+                                                                done_plus_one = True
+                                                                break
+                                                            else:
+                                                                for o in range(n - 1, -1, -1):
+                                                                    if calc[o] != i - (m - o):
+                                                                        calc[n] = calc[o] + 1 + (n - o)
+                                                                        break
+                                                        if not done_plus_one:
+                                                            break
+                                        if norm_check:
+                                            if print_counter >= lim_print_counter:
+                                                # """# print
+                                                print()
+                                                print("many loop : over ", print_counter)
+                                                print("end : aiming, same eqs (1 op is safe)")
+                                                print("   selected : aiming, same eqs (1 op is safe)")
+                                                txt_n_same_eq_shape_L = []
+                                                for t in range(np.max(same_eq_shape_L) + 1):
+                                                    txt_n_same_eq_shape_L.append(
+                                                        str(t) + " : " + str(np.sum(same_eq_shape_L == t))
+                                                    )
+                                                print(
+                                                    "   tot_eqs = ",
+                                                    indexes.shape[0],
+                                                    ", n_same_eq_shape = ",
+                                                    ", ".join(txt_n_same_eq_shape_L),
+                                                    ", tot_pattern = ",
+                                                    len_cache_for_mask_x,
+                                                )
+                                                for m in range(i):
+                                                    add = dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]]
+                                                    len_add = count_True(
+                                                        add[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    n_op1 = check_exist_id[indexes[mat_use[m, 0]], 0]
+                                                    id1 = check_exist_id[indexes[mat_use[m, 0]], 1]
+                                                    n_op2 = max_op - 1 - n_op1
+                                                    id2 = check_exist_id[indexes[mat_use[m, 0]], 2]
+                                                    back_change_pattern = arr_back_change_pattern[
+                                                        indexes[mat_use[m, 0]]
+                                                    ]
+                                                    before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
+                                                    len_before1 = count_True(
+                                                        before_check_change_x1[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
+                                                    changed_before_check_change_x2 = make_eq(
+                                                        before_check_change_x2, back_change_pattern
+                                                    )
+                                                    len_before2 = count_True(
+                                                        changed_before_check_change_x2[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    print(
+                                                        "      eq : ",
+                                                        check_exist_eq[indexes[mat_use[m, 0]]],
+                                                        ", same_eq_shape : ",
+                                                        (
+                                                            same_eq_shape_L[mat_use[m, 0]],
+                                                            same_eq_shape_S[mat_use[m, 0]],
+                                                        ),
+                                                    )
+                                                    l_before_check_change_x = []
+                                                    for t in range(len_before1):
+                                                        l_before_check_change_x.append(
+                                                            [
+                                                                int(before_check_change_x1[t, 0]),
+                                                                int(before_check_change_x1[t, 1]),
+                                                            ]
+                                                        )
+                                                    for t in range(len_before2):
+                                                        l_before_check_change_x.append(
+                                                            [
+                                                                int(changed_before_check_change_x2[t, 0]),
+                                                                int(changed_before_check_change_x2[t, 1]),
+                                                            ]
+                                                        )
+                                                    print(
+                                                        "      before_check : ",
+                                                        l_before_check_change_x,
+                                                        ", covered num : ",
+                                                        n_min_mat_covered_num[mat_use[m, 0]],
+                                                        "~",
+                                                        n_max_mat_covered_num[mat_use[m, 0]],
+                                                    )
+                                                    l_add = []
+                                                    for t in range(len_add):
+                                                        l_add.append(add[t])
+                                                    print(
+                                                        "      add : ", l_add, ", pattern : ", patterns[mat_use[m, 0]]
+                                                    )
+                                                print()
+                                                print("   droped")
+                                                for m in range(indexes.shape[0]):
+                                                    if same_eq_shape_L[m] == i:
+                                                        if m in selected_indexes[use[:i]]:
+                                                            continue
+                                                    n_op1 = check_exist_id[indexes[m], 0]
+                                                    id1 = check_exist_id[indexes[m], 1]
+                                                    n_op2 = max_op - 1 - n_op1
+                                                    id2 = check_exist_id[indexes[m], 2]
+                                                    back_change_pattern = arr_back_change_pattern[indexes[m]]
+                                                    before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
+                                                    len_before1 = count_True(
+                                                        before_check_change_x1[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
+                                                    changed_before_check_change_x2 = make_eq(
+                                                        before_check_change_x2, back_change_pattern
+                                                    )
+                                                    len_before2 = count_True(
+                                                        changed_before_check_change_x2[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    print(
+                                                        "      eq : ",
+                                                        check_exist_eq[indexes[m]],
+                                                        ", same_eq_shape : ",
+                                                        (same_eq_shape_L[m], same_eq_shape_S[m]),
+                                                    )
+                                                    l_before_check_change_x = []
+                                                    for t in range(len_before1):
+                                                        l_before_check_change_x.append(
+                                                            [
+                                                                int(before_check_change_x1[t, 0]),
+                                                                int(before_check_change_x1[t, 1]),
+                                                            ]
+                                                        )
+                                                    for t in range(len_before2):
+                                                        l_before_check_change_x.append(
+                                                            [
+                                                                int(changed_before_check_change_x2[t, 0]),
+                                                                int(changed_before_check_change_x2[t, 1]),
+                                                            ]
+                                                        )
+                                                    print(
+                                                        "      before_check : ",
+                                                        l_before_check_change_x,
+                                                        ", pattern : ",
+                                                        patterns[m],
+                                                        ", covered num : ",
+                                                        n_min_mat_covered_num[m],
+                                                        "~",
+                                                        n_max_mat_covered_num[m],
+                                                    )
+                                                print()
+                                                # """  # print
+                                            for m in range(i):
+                                                if m in calc:
+                                                    add = dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]]
+                                                    len_add = count_True(
+                                                        add[:, 0], 2, int_nan
+                                                    )  # 2 -> lambda x: x != border
+                                                    can_use_norm, one_eq_calc_check_change_x = make_check_change_x_norm(
+                                                        mask_x,
+                                                        same_norm_num_index[mat_use[m, 0]],
+                                                        TF_mask_x[mat_use[m, 0]],
+                                                        add[:len_add],
+                                                    )
+                                                    dict_one_eq_calc_check_change_x[m] = one_eq_calc_check_change_x
+                                                return_mat_use[m, 0] = mat_use[m, 0]
+                                                return_mat_use[m, 1] = mat_use[m, 1]
+                                            return_mat_use[i:] = int_nan
+                                            return (
+                                                return_mat_use,
+                                                dict_check_change_x,
+                                                calc,
+                                                dict_one_eq_calc_check_change_x,
+                                            )
                     done_plus_one = False
                     for l in range(i - 1, -1, -1):
                         if use[l] != n_selected_indexes - (i - l):
@@ -1516,6 +1710,7 @@ def sub_check_exist_step3(
     for j in range(2, indexes.shape[0] + 1):
         for k in range(j):
             use[k] = k
+        """
         combination_1 = 1
         n_C = indexes.shape[0]
         r_C = min(n_C - j, j)
@@ -1524,6 +1719,8 @@ def sub_check_exist_step3(
         for k in range(r_C):
             combination_1 //= r_C - k
         for _ in range(combination_1):
+        """
+        while True:
             combination_2 = 1
             for l in range(j):
                 combination_2 *= patterns[use[l]]
@@ -1546,8 +1743,49 @@ def sub_check_exist_step3(
                         cp_l //= patterns[mat_use[m, 0]]
                     else:
                         break
-                if check_l:
-                    if np.all(checker):
+                if check_l and np.all(checker):
+                    norm_check = len_cache_for_mask_x == len_norm_cache_for_mask_x
+                    if norm_check:
+                        for m in range(i):
+                            calc[m] = m
+                        calc[i:] = int_nan
+                    else:
+                        for m in range(1, i + 1):
+                            if not norm_check:
+                                for n in range(m):
+                                    calc[n] = n
+                                calc[m:] = int_nan
+                                while True:
+                                    norm_checker[:] = False
+                                    check_n = True
+                                    for n in calc[:m]:
+                                        if check_n:
+                                            for o in range(len_norm_cache_for_mask_x):
+                                                if mat_covered_norm_num[mat_use[n, 0], mat_use[n, 1], o]:
+                                                    norm_checker[o] = True
+                                                    # if norm_checker[o]:
+                                                    #    check_n = False
+                                                    #    break
+                                                    # else:
+                                                    #    norm_checker[o] = True
+                                    # if check_n:
+                                    if np.all(norm_checker):
+                                        norm_check = True
+                                        break
+                                    done_plus_one = False
+                                    for n in range(m - 1, -1, -1):
+                                        if calc[n] != i - (m - n):
+                                            calc[n] += 1
+                                            done_plus_one = True
+                                            break
+                                        else:
+                                            for o in range(n - 1, -1, -1):
+                                                if calc[o] != i - (m - o):
+                                                    calc[n] = calc[o] + 1 + (n - o)
+                                                    break
+                                    if not done_plus_one:
+                                        break
+                    if norm_check:
                         ## print
                         print()
                         print("selected : round-robin")
@@ -1589,7 +1827,7 @@ def sub_check_exist_step3(
                         print()
                         print("   droped")
                         for m in range(use.shape[0]):
-                            if not use[m]:
+                            if not m in use[:j]:
                                 n_op1 = check_exist_id[indexes[m], 0]
                                 id1 = check_exist_id[indexes[m], 1]
                                 n_op2 = max_op - 1 - n_op1
@@ -1620,11 +1858,19 @@ def sub_check_exist_step3(
                                 print("      before_check : ", l_before_check_change_x)
                         print()
                         ## print
-                        for m in range(j):
+                        for m in range(i):
+                            if m in calc:
+                                can_use_norm, one_eq_calc_check_change_x = make_check_change_x_norm(
+                                    mask_x,
+                                    same_norm_num_index[mat_use[m, 0]],
+                                    TF_mask_x[mat_use[m, 0]],
+                                    dict_check_change_x[mat_use[m, 0]][mat_use[m, 1]],
+                                )
+                                dict_one_eq_calc_check_change_x[m] = one_eq_calc_check_change_x
                             return_mat_use[m, 0] = mat_use[m, 0]
                             return_mat_use[m, 1] = mat_use[m, 1]
                         return_mat_use[j:] = int_nan
-                        return return_mat_use, dict_check_change_x
+                        return return_mat_use, dict_check_change_x, calc, dict_one_eq_calc_check_change_x
     print("\nERROR : not seleced")
     for j in range(indexes.shape[0]):
         print("   eq : ", check_exist_eq[indexes[j]])
@@ -1657,7 +1903,9 @@ def sub_check_exist_step3(
         print("   same_num_index : ", same_num_index[j])
         print("   mat_covered_num : ", [mat_covered_num[j, k] for k in range(patterns[j])])
     return_mat_use[:] = int_nan
-    return return_mat_use, dict_check_change_x
+    calc[:] = int_nan
+    dict_one_eq_calc_check_change_x[0] = np.empty((0, 2), dtype="int8")
+    return return_mat_use, dict_check_change_x, calc, dict_one_eq_calc_check_change_x
 
 
 @njit(parallel=True, error_model="numpy")
@@ -1696,10 +1944,15 @@ def check_exist_step4(same, check_exist_num_arr, check_exist_need_calc, progress
     arange = np.arange(n_pattern)
     for i in prange(c):
         indexes = arange[same_need_calc_num == i]
-        if check_exist_need_calc[head_indexes[indexes[0]]]:
-            min_index = indexes[0]
-            min_n_eqs = n_eqs[min_index]
-            for j in indexes[1:]:
+        start = indexes.shape[0]
+        for j in range(indexes.shape[0]):
+            if np.any(check_exist_need_calc[same == indexes[j]]):
+                min_index = indexes[j]
+                min_n_eqs = n_eqs[indexes[j]]
+                start = j + 1
+                break
+        for j in indexes[start:]:
+            if np.any(check_exist_need_calc[same == j]):
                 if min_n_eqs > n_eqs[j]:
                     check_exist_need_calc[same == min_index] = False
                     min_n_eqs = n_eqs[j]
