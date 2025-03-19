@@ -63,12 +63,16 @@ def is_all_const(arr, rtol=1e-06, atol=0):
 @njit(error_model="numpy")
 def isclose_RMESE(arr1, arr2, border=1e-6):
     len_arr = arr1.shape[0]
-    mean1, mean2 = np.mean(arr1), np.mean(arr2)
+    n_first_quartile = len_arr // 4
+    sorted_arr_1 = np.sort(arr1)
+    sorted_arr_2 = np.sort(arr2)
+    mean1 = np.mean(sorted_arr_1[n_first_quartile:-n_first_quartile])
+    mean2 = np.mean(sorted_arr_2[n_first_quartile:-n_first_quartile])
     std1, std2, d = 0.0, 0.0, 0.0
-    for i in range(len_arr):
-        std1 += (arr1[i] - mean1) ** 2
-        std2 += (arr2[i] - mean2) ** 2
-        d += (arr1[i] - arr2[i]) ** 2
+    for i in np.arange(len_arr)[n_first_quartile:-n_first_quartile]:
+        std1 += (sorted_arr_1[i] - mean1) ** 2
+        std2 += (sorted_arr_2[i] - mean2) ** 2
+        d += (sorted_arr_1[i] - sorted_arr_2[i]) ** 2
     if (std1 == 0) or (std2 == 0):
         return d == 0
     return d < border * np.sqrt(std1 * std2)
@@ -78,10 +82,13 @@ def isclose_RMESE(arr1, arr2, border=1e-6):
 def normalize(x):
     return_x = np.empty_like(x)
     n_sample = x.shape[0]
-    mean = np.mean(x)
+    n_first_quartile = n_sample // 4
+    indexes = np.arange(n_sample)[n_first_quartile:-n_first_quartile]
+    sorted_x = np.sort(x)
+    mean = np.mean(sorted_x[n_first_quartile:-n_first_quartile])
     sum = 0.0
-    for i in range(n_sample):
-        sum += (x[i] - mean) ** 2
+    for i in indexes:
+        sum += (sorted_x[i] - mean) ** 2
     std = np.sqrt(sum / n_sample)
     plus_minus = np.sign(x[0] - mean)
     for i in range(n_sample):
@@ -93,11 +100,14 @@ def normalize(x):
 def mat_normalize(mat_x):
     return_mat_x = np.empty_like(mat_x)
     n_sample = mat_x.shape[1]
+    n_first_quartile = n_sample // 4
+    indexes = np.arange(n_sample)[n_first_quartile:-n_first_quartile]
     for i in range(mat_x.shape[0]):
-        mean = np.mean(mat_x[i])
+        sorted_x = np.sort(mat_x[i])
+        mean = np.mean(sorted_x[n_first_quartile:-n_first_quartile])
         sum = 0.0
-        for j in range(n_sample):
-            sum += (mat_x[i, j] - mean) ** 2
+        for j in indexes:
+            sum += (sorted_x[j] - mean) ** 2
         std = np.sqrt(sum / n_sample)
         plus_minus = np.sign(mat_x[i, 0] - mean)
         for j in range(n_sample):
@@ -105,7 +115,8 @@ def mat_normalize(mat_x):
     return return_mat_x
 
 
-def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False):
+def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False, num_threads=None, log_interval=60):
+    # how_many_to_save -> 1 : 11, 2 : 236, 3 : 8147, 4 : 414872
     int_nan = -100
     operators_to_use = ["+", "-", "*", "/"]
     model_score = debug_1d
@@ -125,6 +136,7 @@ def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False):
     _, eq = SIS(
         x,
         y,
+        num_threads=num_threads,
         model_score=model_score,
         units=units,
         how_many_to_save=how_many_to_save,
@@ -132,7 +144,7 @@ def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False):
         max_n_op=max_n_op,
         fast=True,
         operators_to_use=operators_to_use,
-        log_interval=1,
+        log_interval=log_interval,
         logger=logger,
     )
     eq = eq[: np.sum(eq[:, 0] != int_nan)]

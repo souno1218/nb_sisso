@@ -117,13 +117,14 @@ def nb_calc_RPN(x, equation):
         return_stack[0] = int_nan
         return_stack[1] = np.sign(stack[0, 0]) * stack[0]
         return return_stack
-    _mean = np.mean(stack[0])
+    use_index = np.argsort(stack[0])[n_sample // 4 : -(n_sample // 4)]
+    _mean = np.mean(stack[0, use_index])
     plus_minus_0 = np.sign(stack[0, 0] - _mean)
     plus_minus_1 = np.sign(stack[0, 0])
-    sum = 0.0
-    for i in range(n_sample):
-        sum += (stack[0, i] - _mean) ** 2
-    std = np.sqrt(sum / n_sample)
+    _sum = 0.0
+    for i in use_index:
+        _sum += (stack[0, i] - _mean) ** 2
+    std = np.sqrt(_sum / n_sample)
     for i in range(n_sample):
         return_stack[0, i] = plus_minus_0 * (stack[0, i] - _mean) / std
         # return_stack[1, i] = stack[0, i]
@@ -286,15 +287,17 @@ def loop_count(max_op, n_op1, num_threads):
     base_eq_arr1 = base_dict[n_op1]
     base_eq_arr2 = base_dict[n_op2]
     loop = base_eq_arr1.shape[0] * base_eq_arr2.shape[0]
+    split_indexes = np.array_split(np.arange(loop), num_threads)
     for thread_id in prange(num_threads):
-        for i in range(thread_id, loop, num_threads):
+        for i in split_indexes[thread_id]:
+            # for i in range(thread_id, loop, num_threads):
             id1 = i % base_eq_arr1.shape[0]
             i //= base_eq_arr1.shape[0]
             id2 = i % base_eq_arr2.shape[0]
             if n_op1 >= n_op2:
                 last_index[thread_id] += 4 * dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
             else:
-                last_index[thread_id] += 2 * dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
+                last_index[thread_id] += dict_max_loop[np.max(base_eq_arr2[id2]), np.max(base_eq_arr1[id1])]
     tot_loop, loop_per_threads = int(np.sum(last_index)), int(np.max(last_index))
     return tot_loop, loop_per_threads
 
