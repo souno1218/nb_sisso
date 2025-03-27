@@ -1,11 +1,20 @@
 #!pip install -e /Users/sounosuke/Documents/python/nb_sisso
 
 import numpy as np
-import logging
-from numba import njit
+import logging, multiprocessing
+from numba import njit, prange, set_num_threads
 from nb_sisso import SIS
 from nb_sisso.utils import decryption, eq_list_to_num, calc_RPN
+from nb_sisso.log_progress import loop_log
 from nb_sisso.model_score_1d import debug_1d
+
+
+@njit(parallel=True)
+def thread_check(num_threads):
+    checker = np.zeros(num_threads, dtype="bool")
+    for thread_id in prange(num_threads):
+        checker[thread_id] = True
+    return np.all(checker)
 
 
 @njit(error_model="numpy")
@@ -102,7 +111,7 @@ def mat_normalize(mat_x):
     n_sample = mat_x.shape[1]
     n_first_quartile = n_sample // 4
     indexes = np.arange(n_sample)[n_first_quartile:-n_first_quartile]
-    for i in range(mat_x.shape[0]):
+    for i in prange(mat_x.shape[0]):
         sorted_x = np.sort(mat_x[i])
         mean = np.mean(sorted_x[n_first_quartile:-n_first_quartile])
         sum = 0.0
@@ -116,7 +125,7 @@ def mat_normalize(mat_x):
 
 
 def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False, num_threads=None, log_interval=60):
-    # how_many_to_save -> 1 : 11, 2 : 236, 3 : 8147, 4 : 414872
+    # how_many_to_save -> 1 : 11, 2 : 236, 3 : 8147, 4 : 414872, 5 : 27963924
     int_nan = -100
     operators_to_use = ["+", "-", "*", "/"]
     model_score = debug_1d
@@ -157,17 +166,55 @@ def make_unique_eqs(x, max_n_op, how_many_to_save=1000000, is_print=False, num_t
     return sorted_normalized_mat_x, eq, arr_columns
 
 
-@njit(error_model="numpy")
-def check(n_random, max_n_op, x, calced_x, calced_eq, find):
+def check(n_random, x, calced_x, calced_eq, find, num_threads=None, logger=None, log_interval=120, verbose=True):
+    if logger is None:
+        logger = logging.getLogger("check")
+        logger.setLevel(logging.DEBUG)
+        for h in logger.handlers[:]:
+            logger.removeHandler(h)
+            h.close()
+        if verbose:
+            st_handler = logging.StreamHandler()
+            st_handler.setLevel(logging.INFO)
+            # _format = "%(asctime)s %(name)s:%(lineno)s %(funcName)s [%(levelname)s]: %(message)s"
+            _format = "%(asctime)s : %(message)s"
+            st_handler.setFormatter(logging.Formatter(_format))
+            logger.addHandler(st_handler)
+    # num_threads
+    if num_threads is None:
+        num_threads = multiprocessing.cpu_count()
+    set_num_threads(num_threads)
+    if not thread_check(num_threads):
+        print(f"can't set thread : {num_threads}")
+
+    # find
+    num_find = []
+    if "not_calced" in find:
+        num_find.append(0)
+    if "many_calc" in find:
+        num_find.append(1)
+        loop_log
+    with loop_log(logger, interval=log_interval, tot_loop=n_random) as progress:
+        TF = sub_check(num_threads, n_random, x, calced_x, calced_eq, num_find, progress)
+    return TF
+
+
+@njit(parallel=True, error_model="numpy")
+def sub_check(num_threads, n_random, x, calced_x, calced_eq, num_find, progress_proxy):
     int_nan = -100
+    n_split = 100
+    max_n_op = (calced_eq.shape[1] - 1) // 2
     head_calced_x = calced_x[:, 0].copy()
-    random_eqs = np.full((2 * max_n_op + 1), int_nan, dtype="int8")
+    split_head_index = np.linspace(0, calced_x.shape[0] - 1, n_split).astype("int64")
+    split_head_calced_x = head_calced_x[split_head_index].copy()
     n_ops = np.arange(max_n_op + 1)
     nums = np.arange(max_n_op + 2)
     ops = np.arange(-1, -5, -1)
     TFs = np.arange(2)
-    calced_TF = np.zeros(calced_x.shape[0], dtype="bool")
     arange = np.arange(calced_x.shape[0])
+    calced_TF = np.zeros((calced_x.shape[0]), dtype="bool")
+    random_eqs = np.full((2 * max_n_op + 1), int_nan, dtype="int8")
+    all_ok = True
     for _ in range(n_random):
         n_op = np.random.choice(n_ops)
         random_eqs[2 * n_op + 1 :] = int_nan
@@ -189,38 +236,51 @@ def check(n_random, max_n_op, x, calced_x, calced_eq, find):
                 count_op += 1
         random_x = calc_RPN(x, random_eqs)
         if np.any(np.isnan(random_x)):
-            continue
+            pass
         elif is_inf(random_x):
-            continue
+            pass
         elif is_all_zero(random_x):
-            continue
+            pass
         elif is_all_const(random_x):
-            continue
+            pass
         else:
             normalized_random_x = normalize(random_x)
-            count = 0
-            calced_TF[:] = False
-            for i in range(calced_x.shape[0]):
-                if isclose(normalized_random_x[0], head_calced_x[i], rtol=1e-4):
-                    if isclose_arr(normalized_random_x, calced_x[i]):
-                        calced_TF[i] = True
-                        count += 1
-                        # print("")
-                elif normalized_random_x[0] < head_calced_x[i]:
-                    break
-            if count == 0:
-                if 0 in find:
-                    print("not calced : ", random_eqs, normalized_random_x[0])
-            elif count != 1:
-                if 1 in find:
-                    print("many calc : ", count, random_eqs, normalized_random_x[0])
-                    for i in arange[calced_TF]:
-                        print(calced_eq[i], calced_x[i, 0])
-    return True
+            if normalized_random_x[0] < head_calced_x[0]:
+                pass
+            else:
+                count = 0
+                start_index = 0
+                calced_TF[:] = False
+                for i in range(1, n_split):
+                    if normalized_random_x[0] < split_head_calced_x[i]:
+                        start_index = split_head_index[i - 1]
+                        break
+                for thread_id in prange(num_threads):
+                    for i in range(start_index + thread_id, calced_x.shape[0], num_threads):
+                        if isclose(normalized_random_x[0], head_calced_x[i], rtol=1e-4):
+                            if isclose_arr(normalized_random_x, calced_x[i]):
+                                calced_TF[i] = True
+                                count += 1
+                        elif normalized_random_x[0] < head_calced_x[i]:
+                            break
+                if count == 0:
+                    if 0 in num_find:
+                        print("not calced : ", random_eqs)
+                        all_ok = False
+                        break
+                elif count != 1:
+                    if 1 in num_find:
+                        print("many calc : ", count, random_eqs)
+                        for i in arange[calced_TF]:
+                            print(calced_eq[i])
+                        all_ok = False
+                        break
+        progress_proxy.update(1)
+    return all_ok
 
 
-@njit(error_model="numpy")
-def sub_finder(target_eq, x, calced_x, calced_eq):
+@njit(parallel=True, error_model="numpy")
+def sub_finder(num_threads, target_eq, x, calced_x, calced_eq):
     tagert_x = calc_RPN(x, target_eq)
     if np.any(np.isnan(tagert_x)):
         print("target x is contain nan")
@@ -235,13 +295,14 @@ def sub_finder(target_eq, x, calced_x, calced_eq):
         normalized_tagert_x = normalize(tagert_x)
         calced_TF = np.zeros(calced_x.shape[0], dtype="bool")
         count = 0
-        for i in range(calced_x.shape[0]):
-            if isclose(normalized_tagert_x[0], head_calced_x[i], rtol=1e-4):
-                if isclose_arr(normalized_tagert_x, calced_x[i]):
-                    calced_TF[i] = True
-                    count += 1
-                elif normalized_tagert_x[0] < head_calced_x[i]:
-                    break
+        for thread_id in prange(num_threads):
+            for i in range(thread_id, calced_x.shape[0], num_threads):
+                if isclose(normalized_tagert_x[0], head_calced_x[i], rtol=1e-4):
+                    if isclose_arr(normalized_tagert_x, calced_x[i]):
+                        calced_TF[i] = True
+                        count += 1
+                    elif normalized_tagert_x[0] < head_calced_x[i]:
+                        break
         if count == 0:
             print("target eq is not calced")
         else:
@@ -255,6 +316,7 @@ def random_test(
     n_random,
     len_x=30,
     how_many_to_save=1000000,
+    num_threads=None,
     is_print=False,
     x=None,
     calced_x=None,
@@ -276,7 +338,7 @@ def random_test(
     if calced_x is None:
         print("doing : make calced_x")
         calced_x, calced_eq, calced_columns = make_unique_eqs(
-            x, max_n_op, how_many_to_save=how_many_to_save, is_print=is_print
+            x, max_n_op, how_many_to_save=how_many_to_save, is_print=is_print, num_threads=num_threads
         )
         print("done : make calced_x")
         if calced_x.shape[0] >= how_many_to_save:
@@ -286,7 +348,7 @@ def random_test(
             print("??????????")
             raise
     print("doing : make random_x")
-    all_calced = check(n_random, max_n_op, x, calced_x, calced_eq, num_find)
+    all_calced = check(n_random, x, calced_x, calced_eq, find, num_threads=num_threads)
     print("done : make random_x")
     if all_calced:
         print("all calced.")
@@ -294,6 +356,7 @@ def random_test(
 
 def finder(
     target_eq,
+    num_threads=None,
     max_n_op=None,
     len_x=30,
     how_many_to_save=1000000,
@@ -304,6 +367,13 @@ def finder(
     upper=0.3,
     lower=10,
 ):
+    # num_threads
+    if num_threads is None:
+        num_threads = multiprocessing.cpu_count()
+    set_num_threads(num_threads)
+    if not thread_check(num_threads):
+        print(f"can't set thread : {num_threads}")
+
     if max_n_op is None:
         max_n_op = (target_eq.shape[0] - 1) // 2
     if x is None:
@@ -324,5 +394,5 @@ def finder(
             print("??????????")
             raise
     print("finding : ")
-    sub_finder(target_eq, x, calced_x, calced_eq)
+    sub_finder(num_threads, target_eq, x, calced_x, calced_eq)
     print("done : make random_x")
