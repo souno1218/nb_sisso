@@ -2,16 +2,13 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 from numba import int64
-import time
-import datetime
-import logging
-import threading
+import time, datetime, logging, threading, os, psutil
 from numba.experimental import jitclass
 from numba_progress.numba_atomic import atomic_add
 
 
 class loop_log:
-    def __init__(self, logger=None, interval=5, tot_loop=None, header="", footer=""):
+    def __init__(self, logger=None, interval=5, tot_loop=None, header="", footer="", print_mem=True):
         if logger is None:
             self.logger = logging.getLogger("loop_log")
             self.logger.setLevel(logging.DEBUG)
@@ -29,6 +26,7 @@ class loop_log:
         self.is_in_progress = False
         self.interval = interval
         self.counter = jit_counter()
+        self.print_mem = print_mem
         if tot_loop is None:
             self.is_tot_loop = False
         else:
@@ -44,15 +42,24 @@ class loop_log:
         time.sleep(self.interval)
         while self.is_in_progress:
             dtime = datetime.datetime.now() - self.start_time
+            count = self.counter.count[0]
+            txt = ""
             if self.is_tot_loop:
-                count = self.counter.count[0]
+                if count != 0:
+                    txt += f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  "
+                else:
+                    txt += f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  "
+            else:
+                txt += f"{str(count)}  "
+            if self.print_mem:
+                txt += f"({str_using_mem()})  "
+            txt += f"{dtime} "
+            if self.is_tot_loop:
                 if count != 0:
                     left_time = ((self.tot_loop - count) / count) * dtime
-                    txt = f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  {dtime} : {left_time}"
+                    txt += f": {left_time}"
                 else:
-                    txt = f"{str(count).rjust(len(self.str_tot_loop))}/{self.str_tot_loop}  {dtime} : inf"
-            else:
-                txt = f"{self.counter.count[0]}  {dtime}"
+                    txt += f": inf"
             self.logger.info(self.header + txt + self.footer)
             time.sleep(self.interval)
 
@@ -77,3 +84,8 @@ class jit_counter:
 
     def update(self, n):
         atomic_add(self.count, 0, n)
+
+
+def str_using_mem():
+    using_mem = psutil.Process(os.getpid()).memory_info().rss
+    return f"{using_mem /(1024**2):.1f} MB"

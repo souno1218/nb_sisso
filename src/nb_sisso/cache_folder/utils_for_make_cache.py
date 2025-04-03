@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit, prange, objmode
+import gc, os, psutil
 
 
 @njit(error_model="numpy")
@@ -622,3 +623,15 @@ def make_random_x(max_op, len_x, seed=-100, loop=100000, upper=0.3, lower=10):
             save_random_x = random_x
     save_random_x[0] = 1
     return save_corrcoef, save_random_x
+
+
+def str_using_mem():
+    using_mem = psutil.Process(os.getpid()).memory_info().rss
+    return f"{using_mem /(1024**2):.1f} MB"
+
+
+def del_concatenate(a, b):
+    return_arr = np.concatenate((a, b))
+    del a, b
+    gc.collect()
+    return return_arr
