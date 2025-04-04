@@ -2031,21 +2031,21 @@ def check_exist_step4(same, check_exist_num_arr, check_exist_need_calc, progress
                     head_indexes[i] = j
                     first = False
                 n_eqs[i] += 1
+
     c = 0
     for i in range(n_pattern):
-        head_index = head_indexes[i]
-        is_same = False
-        for j in range(i):
-            target_index = head_indexes[j]
-            if isclose(check_exist_num_arr[head_index, 0, 0], check_exist_num_arr[target_index, 0, 0]):
-                if isclose_arr(check_exist_num_arr[head_index, 0], check_exist_num_arr[target_index, 0]):
-                    same_need_calc_num[i] = same_need_calc_num[j]
-                    is_same = True
-                    break
-        if not is_same:
+        if same_need_calc_num[i] == int_nan:
+            head_index = head_indexes[i]
             same_need_calc_num[i] = c
+            for j in prange(i + 1, n_pattern):
+                if same_need_calc_num[j] == int_nan:
+                    target_index = head_indexes[j]
+                    if isclose(check_exist_num_arr[head_index, 0, 0], check_exist_num_arr[target_index, 0, 0]):
+                        if isclose_arr(check_exist_num_arr[head_index, 0], check_exist_num_arr[target_index, 0]):
+                            same_need_calc_num[j] = c
             c += 1
         progress_proxy.update(1)
+
     arange = np.arange(n_pattern)
     for i in prange(c):
         indexes = arange[same_need_calc_num == i]
