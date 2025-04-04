@@ -664,7 +664,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                 return_similar_num_list,
                 return_base_eq_id_list,
                 return_check_change_x_tot,
-                check_change_x_ones,
+                return_check_change_x_ones,
             ) = dim_reduction_info_7(
                 TF_list,
                 similar_num_list,
@@ -1078,6 +1078,34 @@ def make_unique_equations_thread(
         save_back_change_pattern,
         save_one_eq_calc_check_change_x,
     )
+
+
+@njit(parallel=True, error_model="numpy")
+def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
+    int_nan = -100
+    num_threads = similar_num_list.shape[0]
+    similar_num_list_1d = np.empty(
+        (num_threads * similar_num_list.shape[1], 2, similar_num_list.shape[3]), dtype="float64"
+    )
+    for thread_id in prange(num_threads):
+        for i in range(similar_num_list.shape[1]):
+            index = thread_id + num_threads * i
+            similar_num_list_1d[index] = similar_num_list[thread_id, i]
+    head_similar_num = similar_num_list_1d[:, 0, 0].copy()
+    for i in range(similar_num_list_1d.shape[0]):
+        base_thread_id = j % num_threads
+        base_index = j // num_threads
+        if TF_list[base_thread_id, base_index]:
+            for j in prange(i + 1, similar_num_list_1d.shape[0]):
+                thread_id = j % num_threads
+                index = j // num_threads
+                if TF_list[thread_id, index]:
+                    if isclose(head_similar_num[i], head_similar_num[j]):
+                        if isclose_arr(similar_num_list_1d[i, 0], similar_num_list_1d[j, 0]):
+                            need_calc_list[thread_id, index] = False
+                            if isclose_arr(similar_num_list_1d[i, 1], similar_num_list_1d[j, 1]):
+                                TF_list[thread_id, index] = False
+        progress_proxy.update(1)
 
 
 @njit(parallel=True, error_model="numpy")
