@@ -283,13 +283,17 @@ def sub_check(num_threads, n_random, x, calced_x, calced_eq, num_find, progress_
 def sub_finder(num_threads, target_eq, x, calced_x, calced_eq):
     tagert_x = calc_RPN(x, target_eq)
     if np.any(np.isnan(tagert_x)):
-        print("target x is contain nan")
+        print("target x is contain nan : ", tagert_x)
+        print(x)
     elif is_inf(tagert_x):
-        print("target x is contain inf")
+        print("target x is contain inf : ", tagert_x)
+        print(x)
     elif is_all_zero(tagert_x):
-        print("target x is all zero")
+        print("target x is all zero : ", tagert_x)
+        print(x)
     elif is_all_const(tagert_x):
-        print("target x is all const")
+        print("target x is all const : ", tagert_x)
+        print(x)
     else:
         head_calced_x = calced_x[:, 0].copy()
         normalized_tagert_x = normalize(tagert_x)

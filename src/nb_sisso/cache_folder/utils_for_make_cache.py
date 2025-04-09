@@ -78,6 +78,7 @@ def make_eq(base_back_equation, change_x_pattern):
     return return_equation
 
 
+"""
 @njit(error_model="numpy")
 def make_check_change_x(base_check_change_x, change_x_pattern):
     return_check_change_x = base_check_change_x.copy()
@@ -88,6 +89,7 @@ def make_check_change_x(base_check_change_x, change_x_pattern):
             if base_check_change_x[j, 1] == i:
                 return_check_change_x[j, 1] = change_x_pattern[i - 1]
     return return_check_change_x
+"""
 
 
 @njit(error_model="numpy")
@@ -288,10 +290,8 @@ def loop_count(max_op, n_op1, num_threads):
     base_eq_arr1 = base_dict[n_op1]
     base_eq_arr2 = base_dict[n_op2]
     loop = base_eq_arr1.shape[0] * base_eq_arr2.shape[0]
-    split_indexes = np.array_split(np.arange(loop), num_threads)
     for thread_id in prange(num_threads):
-        for i in split_indexes[thread_id]:
-            # for i in range(thread_id, loop, num_threads):
+        for i in range(thread_id, loop, num_threads):
             id1 = i % base_eq_arr1.shape[0]
             i //= base_eq_arr1.shape[0]
             id2 = i % base_eq_arr2.shape[0]
@@ -413,80 +413,78 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                     n += 1
     len_check_pattern = n
     TF = TF[:len_check_pattern]
-
     check_pattern = check_pattern[:len_check_pattern]
-    use = np.zeros((len_check_pattern), dtype="bool")
-    tot_TF = np.empty((mask.shape[0]), dtype="bool")
+
     return_len = min(len_arr - 2, len_check_pattern)
+    use = np.empty((return_len), dtype="int64")
+    save_use = np.empty((return_len), dtype="bool")
+    return_dict = dict()
+    dict_saved_num = dict()
     n = 0
+
     for i in range(1, return_len + 1):
-        return_dict = dict()
-        dict_saved_num = dict()
-        divide_num = len_check_pattern - (i - 1)
-        for j in range(divide_num**i):
-            num = j
-            max_setted_num = -1
-            use[:] = False
-            check = True
-            for k in range(i):
-                set_num = num % divide_num + k
-                num //= divide_num
-                if max_setted_num < set_num:
-                    use[set_num] = True
-                    max_setted_num = set_num
-                else:
-                    check = False
-                    break
-            if check:
-                can_use = True
-                tot_TF[:] = True
+        for j in range(i):
+            use[j] = j
+        while True:
+            saved_num[:] = False
+            for j in range(mask.shape[0]):
+                one_TF = True
+                for k in use[:i]:
+                    if not TF[k, j]:
+                        one_TF = False
+                        break
+                if one_TF:
+                    if saved_num[same_arr[j]]:
+                        saved_num[same_arr[j]] = False
+                        break
+                    else:
+                        saved_num[same_arr[j]] = True
+            if np.all(saved_num):
                 saved_num[:] = False
-                for k in range(len_check_pattern):
-                    if use[k]:
-                        for l in range(mask.shape[0]):
-                            if not TF[k, l]:
-                                tot_TF[l] = False
-                for k in range(mask.shape[0]):
-                    if tot_TF[k]:
-                        if saved_num[same_arr[k]]:
-                            can_use = False
+                for j in range(mask.shape[0]):
+                    if TF_mask_x[j]:
+                        one_TF = True
+                        for k in use[:i]:
+                            if not TF[k, j]:
+                                one_TF = False
+                                break
+                        if one_TF:
+                            saved_num[same_arr[j]] = True
+                if np.all(saved_num):
+                    return True, all_covered, np.expand_dims(check_pattern[use[:i]], axis=0)
+                elif np.any(saved_num):
+                    is_unique = True
+                    for j in range(n):
+                        one_dict_saved_num = dict_saved_num[j]
+                        sub_is_unique = False
+                        for k in range(saved_num.shape[0]):
+                            if one_dict_saved_num[k] != saved_num[k]:
+                                sub_is_unique = True
+                                break
+                        if not sub_is_unique:
+                            is_unique = False
                             break
-                        else:
-                            saved_num[same_arr[k]] = True
-                if can_use:
-                    if np.all(saved_num):
-                        saved_num[:] = False
-                        for k in range(mask.shape[0]):
-                            if tot_TF[k]:
-                                if TF_mask_x[k]:
-                                    saved_num[same_arr[k]] = True
-                        if can_use:
-                            if np.all(saved_num):
-                                for k in range(len_check_pattern):
-                                    if use[k]:
-                                        if np.all(TF[k][TF_mask_x]):
-                                            use[k] = False
-                                return True, all_covered, np.expand_dims(check_pattern[use], axis=0)
-                            elif np.any(saved_num):
-                                is_unique = True
-                                for k in range(n):
-                                    one_dict_saved_num = dict_saved_num[k]
-                                    sub_is_unique = False
-                                    for l in range(saved_num.shape[0]):
-                                        if one_dict_saved_num[l] != saved_num[l]:
-                                            sub_is_unique = True
-                                            break
-                                    if not sub_is_unique:
-                                        is_unique = False
-                                        break
-                                if is_unique:
-                                    for k in range(len_check_pattern):
-                                        if use[k]:
-                                            if np.all(TF[k][TF_mask_x]):
-                                                use[k] = False
-                                    return_dict[n] = check_pattern[use].copy()
-                                    dict_saved_num[n] = saved_num.copy()
-                                    n += 1
+                    if is_unique:
+                        save_use[:] = False
+                        for j in range(i):
+                            if not np.all(TF[use[j]][TF_mask_x]):
+                                save_use[j] = True
+                        return_dict[n] = check_pattern[use[save_use]].copy()
+                        dict_saved_num[n] = saved_num.copy()
+                        n += 1
+            done_plus = False
+            for j in range(i - 1, -1, -1):
+                if use[j] != len_check_pattern - (i - j):
+                    use[j] += 1
+                    done_plus = True
+                    break
+                else:
+                    for k in range(j - 1, -1, -1):
+                        if use[k] != len_check_pattern - (i - k):
+                            use[j] = use[k] + 1 + (j - k)
+                            break
+            if not done_plus:
+                break
         if n != 0:
             return_arr = np.full((n, return_len, 2), int_nan, dtype="int8")
             for j in range(n):
