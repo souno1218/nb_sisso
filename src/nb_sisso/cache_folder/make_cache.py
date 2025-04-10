@@ -164,14 +164,15 @@ def make_final_cache(
     np.save(f"operator_{max_op}", equation_list)
 
 
-def make_final_cache_7(
+def make_final_cache_last(
+    max_op,
     equation_list,
     base_eq_id_list,
     check_change_x_tot,
     check_change_x_ones,
     logger,
 ):
-    max_op = 7
+    # max_op = 7
     # base_eq_id_list = merge_op,n_op1,id1,id2,changed_back_eq_id
     int_nan = -100
     base = np.load("arr_len.npy")
@@ -227,6 +228,7 @@ def make_final_cache_7(
 def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list, log_interval, logger):
     num_threads = int(num_threads)
     int_nan = -100
+    last_op = 7
     saved_equation_list = np.empty((0, 2 * max_op + 1), dtype="int8")
     saved_base_eq_id_list = np.empty((0, 5), dtype="int64")
     saved_check_change_x_tot = np.empty((0, (max_op * (max_op + 1)) // 2, 2), dtype="int8")
@@ -235,7 +237,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
     saved_check_exist_id_list = np.empty((0, 5), dtype="int64")
     saved_back_change_pattern = np.empty((0, max_op), dtype="int8")
     saved_one_eq_calc_check_change_x = np.empty((0, (max_op * (max_op + 1)) // 2, 2), dtype="int8")
-    if max_op != 7:
+    if max_op != last_op:
         saved_need_calc_list = np.empty((0), dtype="bool")
         saved_similar_num_list = np.empty((0, 2, random_x.shape[1]), dtype="float64")
         saved_check_exist_num_list = np.empty((0, 2, random_x.shape[1]), dtype="float64")
@@ -292,9 +294,9 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
 
             logger.info(f"      dim_reduction")
             logger.info(f"         using Memory size =  {str_using_mem()}")
-            how_loop = num_threads * similar_num_list.shape[1]
+            how_loop = np.sum(TF_list)
             mem_size_per_1data = 8  # Byte  # head_similar_num
-            size_arr_for_mem = num_threads * similar_num_list.shape[1]
+            size_arr_for_mem = np.sum(TF_list)
             mem_size = ((mem_size_per_1data * size_arr_for_mem) // 100000) / 10
             logger.info(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, size_arr_for_mem={size_arr_for_mem})"
@@ -603,7 +605,8 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                     check_change_x_ones,
                     check_exist_TF,
                     back_change_pattern,
-                ) = make_unique_equations_thread_7(
+                ) = make_unique_equations_thread_last(
+                    max_op,
                     n_op1,
                     num_threads,
                     random_x,
@@ -616,17 +619,17 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
 
             logger.info(f"      dim_reduction")
             logger.info(f"         using Memory size =  {str_using_mem()}")
-            how_loop = num_threads * similar_num_list.shape[1]
+            how_loop = np.sum(TF_list)
             mem_size_per_1data = 8  # Byte  # head_similar_num
             mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
-            size_arr_for_mem = num_threads * similar_num_list.shape[1]
+            size_arr_for_mem = np.sum(TF_list)
             logger.info(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, size_arr_for_mem={size_arr_for_mem})"
             )
             time1, time2 = time2, datetime.datetime.now()
             header = "         "
             with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
-                dim_reduction_7(TF_list, similar_num_list, progress)
+                dim_reduction_last(TF_list, similar_num_list, progress)
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
 
@@ -643,8 +646,10 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
             logger.info(
                 f"         Memory size of numpy array = {mem_size} M bytes +alpha (1data={mem_size_per_1data} bytes, size_arr_for_mem={size_arr_for_mem})"
             )
-            check_exist_num, check_exist_eq, check_exist_id, check_exist_back_change_pattern = make_check_exist_info_7(
-                check_exist_TF, similar_num_list, equation_list, base_eq_id_list, back_change_pattern
+            check_exist_num, check_exist_eq, check_exist_id, check_exist_back_change_pattern = (
+                make_check_exist_info_last(
+                    check_exist_TF, similar_num_list, equation_list, base_eq_id_list, back_change_pattern
+                )
             )
             time1, time2 = time2, datetime.datetime.now()
             logger.info(f"         time : {time2-time1}")
@@ -670,7 +675,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
                 return_base_eq_id_list,
                 return_check_change_x_tot,
                 return_check_change_x_ones,
-            ) = dim_reduction_info_7(
+            ) = dim_reduction_info_last(
                 TF_list,
                 similar_num_list,
                 equation_list,
@@ -722,7 +727,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         header = "      "
         time1, time2 = time2, datetime.datetime.now()
         with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
-            TF = check_exist_step1_7(saved_similar_num_list, saved_check_exist_num_list, progress)
+            TF = check_exist_step1_last(saved_similar_num_list, saved_check_exist_num_list, progress)
         time1, time2 = time2, datetime.datetime.now()
         logger.info(f"      time : {time2-time1}")
         saved_check_exist_num_list = saved_check_exist_num_list[TF]
@@ -742,7 +747,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         header = "      "
         time1, time2 = time2, datetime.datetime.now()
         with loop_log(logger, interval=log_interval, tot_loop=how_loop - 1, header=header) as progress:
-            same = check_exist_step2_7(num_threads, saved_check_exist_num_list, progress)
+            same = check_exist_step2_last(num_threads, saved_check_exist_num_list, progress)
         time1, time2 = time2, datetime.datetime.now()
         logger.info(f"      time : {time2-time1}")
 
@@ -758,7 +763,8 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         header = "      "
         time1, time2 = time2, datetime.datetime.now()
         with loop_log(logger, interval=log_interval, tot_loop=how_loop, header=header) as progress:
-            TF, check_change_x_ones, check_change_x_tot = check_exist_step3_7(
+            TF, check_change_x_ones, check_change_x_tot = check_exist_step3_last(
+                max_op,
                 num_threads,
                 random_x,
                 same,
@@ -783,7 +789,8 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
         saved_check_change_x_tot = del_concatenate(saved_check_change_x_tot, check_change_x_tot)
         saved_check_change_x_ones = del_concatenate(saved_check_change_x_ones, check_change_x_ones)
 
-        make_final_cache_7(
+        make_final_cache_last(
+            max_op,
             saved_equation_list,
             saved_base_eq_id_list,
             saved_check_change_x_tot,
@@ -1101,41 +1108,59 @@ def make_unique_equations_thread(
 def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
-    loop = num_threads * similar_num_list.shape[1]
+    loop = np.sum(TF_list)
+    # loop = num_threads * similar_num_list.shape[1]
     head = np.empty((loop), dtype="float64")
-    for thread_id in prange(num_threads):
+    indexes = np.empty((loop), dtype="int64")
+    n = 0
+    for thread_id in range(num_threads):
         for i in range(similar_num_list.shape[1]):
-            index = thread_id + num_threads * i
-            head[index] = similar_num_list[thread_id, i, 0, 0]
+            if TF_list[thread_id, i]:
+                indexes[n] = thread_id + num_threads * i
+                head[n] = similar_num_list[thread_id, i, 0, 0]
+                n += 1
     argsort = np.argsort(head)
     sort_head = head[argsort].copy()
-    n_split = int(np.sqrt(loop))
-    start_thread = np.empty(num_threads, dtype="int64")
-    if n_split == 0:
-        index_split_head = np.empty((0), dtype="int64")
-    else:
-        index_split_head = np.linspace(0, loop - 1, n_split + 1).astype("int64")
-    split_head = sort_head[index_split_head].copy()
-
-    for i in range(loop):
-        base_head = head[i]
-        base_thread_id = i % num_threads
-        base_thread_index = i // num_threads
-        if TF_list[base_thread_id, base_thread_index]:
-            start_thread[:] = 0
-            for thread_id in prange(num_threads):
-                for j in range(1 + thread_id, n_split + 1, num_threads):
+    sort_indexes = indexes[argsort].copy()
+    index_split_thread = np.empty(num_threads + 1, dtype="int64")
+    index_split_thread[0] = 0
+    for thread_id in range(num_threads):
+        index_split_thread[thread_id + 1] = index_split_thread[thread_id] + loop // num_threads
+        if loop % num_threads > thread_id:
+            index_split_thread[thread_id + 1] += 1
+    for thread_id in range(1, num_threads):
+        for i in range(index_split_thread[thread_id] - 1, -1, -1):
+            if isclose(sort_head[i], sort_head[i + 1]):
+                index_split_thread[thread_id] = i
+            else:
+                break
+    for thread_id in prange(num_threads):
+        len_thread = index_split_thread[thread_id + 1] - index_split_thread[thread_id]
+        n_split = int(np.sqrt(len_thread))
+        if n_split == 0:
+            index_split_head = np.empty((0), dtype="int64")
+        else:
+            index_split_head = np.linspace(
+                index_split_thread[thread_id], index_split_thread[thread_id + 1] - 1, n_split + 1
+            ).astype("int64")
+        split_head = sort_head[index_split_head].copy()
+        for i in range(index_split_thread[thread_id], index_split_thread[thread_id + 1]):
+            base_index = sort_indexes[i]
+            base_thread_id = base_index % num_threads
+            base_thread_index = base_index // num_threads
+            if TF_list[base_thread_id, base_thread_index]:
+                base_head = sort_head[i]
+                start = 0
+                for j in range(1, n_split + 1):
                     if isclose(base_head, split_head[j]):
-                        start_thread[thread_id] = index_split_head[j - 1]
+                        start = index_split_head[j - 1]
                         break
                     elif base_head < split_head[j]:
-                        start_thread[thread_id] = index_split_head[j - 1]
+                        start = index_split_head[j - 1]
                         break
-            start = np.min(start_thread)
-            for thread_id in prange(num_threads):
-                for j in range(start + thread_id, loop, num_threads):
-                    target_index = argsort[j]
-                    if i < target_index:
+                for j in range(start, index_split_thread[thread_id + 1]):
+                    target_index = sort_indexes[j]
+                    if base_index < target_index:
                         target_head = sort_head[j]
                         if isclose(base_head, target_head):
                             target_thread_id = target_index % num_threads
@@ -1153,7 +1178,7 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
                                         TF_list[target_thread_id, target_thread_index] = False
                         elif base_head < target_head:
                             break
-        progress_proxy.update(1)
+            progress_proxy.update(1)
 
 
 @njit(parallel=True, error_model="numpy")
@@ -1378,7 +1403,6 @@ def check_exist_step3(
     )
 
 
-# @njit(parallel=True, error_model="numpy")
 @njit(error_model="numpy")
 def sub_check_exist_step3(
     max_op,
@@ -2102,9 +2126,9 @@ def check_exist_step4(same, check_exist_num_arr, check_exist_need_calc, progress
 # max_op = 7
 
 
-# @njit(error_model="numpy")
 @njit(parallel=True, error_model="numpy")
-def make_unique_equations_thread_7(
+def make_unique_equations_thread_last(
+    max_op,
     n_op1,
     num_threads,
     random_x,
@@ -2112,7 +2136,7 @@ def make_unique_equations_thread_7(
     saved_similar_num_list,
     progress_proxy,
 ):
-    max_op = 7
+    # max_op = 7
     int_nan = -100
     n_op2 = max_op - 1 - n_op1
     random_for_find_min_x_max = np.random.random(random_x.shape[1])
@@ -2353,44 +2377,61 @@ def make_unique_equations_thread_7(
 
 
 @njit(parallel=True, error_model="numpy")
-def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
+def dim_reduction_last(TF_list, similar_num_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
-    loop = num_threads * similar_num_list.shape[1]
+    loop = np.sum(TF_list)
     head = np.empty((loop), dtype="float64")
-    for thread_id in prange(num_threads):
+    indexes = np.empty((loop), dtype="int64")
+    n = 0
+    for thread_id in range(num_threads):
         for i in range(similar_num_list.shape[1]):
-            index = thread_id + num_threads * i
-            head[index] = similar_num_list[thread_id, i, 0]
+            if TF_list[thread_id, i]:
+                indexes[n] = thread_id + num_threads * i
+                head[n] = similar_num_list[thread_id, i, 0]
+                n += 1
     argsort = np.argsort(head)
     sort_head = head[argsort].copy()
-    n_split = int(np.sqrt(loop))
-    if n_split == 0:
-        index_split_head = np.empty((0), dtype="int64")
-    else:
-        index_split_head = np.linspace(0, loop - 1, n_split + 1).astype("int64")
-    start_thread = np.empty(num_threads, dtype="int64")
-    split_head = sort_head[index_split_head].copy()
-
-    for i in range(loop):
-        base_head = head[i]
-        base_thread_id = i % num_threads
-        base_thread_index = i // num_threads
-        if TF_list[base_thread_id, base_thread_index]:
-            start_thread[:] = 0
-            for thread_id in prange(num_threads):
-                for j in range(1 + thread_id, n_split + 1, num_threads):
+    sort_indexes = indexes[argsort].copy()
+    index_split_thread = np.empty(num_threads + 1, dtype="int64")
+    index_split_thread[0] = 0
+    for thread_id in range(num_threads):
+        index_split_thread[thread_id + 1] = index_split_thread[thread_id] + loop // num_threads
+        if loop % num_threads > thread_id:
+            index_split_thread[thread_id + 1] += 1
+    for thread_id in range(1, num_threads):
+        for i in range(index_split_thread[thread_id] - 1, -1, -1):
+            if isclose(sort_head[i], sort_head[i + 1]):
+                index_split_thread[thread_id] = i
+            else:
+                break
+    for thread_id in prange(num_threads):
+        len_thread = index_split_thread[thread_id + 1] - index_split_thread[thread_id]
+        n_split = int(np.sqrt(len_thread))
+        if n_split == 0:
+            index_split_head = np.empty((0), dtype="int64")
+        else:
+            index_split_head = np.linspace(
+                index_split_thread[thread_id], index_split_thread[thread_id + 1] - 1, n_split + 1
+            ).astype("int64")
+        split_head = sort_head[index_split_head].copy()
+        for i in range(index_split_thread[thread_id], index_split_thread[thread_id + 1]):
+            base_index = sort_indexes[i]
+            base_thread_id = base_index % num_threads
+            base_thread_index = base_index // num_threads
+            if TF_list[base_thread_id, base_thread_index]:
+                base_head = sort_head[i]
+                start = 0
+                for j in range(1, n_split + 1):
                     if isclose(base_head, split_head[j]):
-                        start_thread[thread_id] = index_split_head[j - 1]
+                        start = index_split_head[j - 1]
                         break
                     elif base_head < split_head[j]:
-                        start_thread[thread_id] = index_split_head[j - 1]
+                        start = index_split_head[j - 1]
                         break
-            start = np.min(start_thread)
-            for thread_id in prange(num_threads):
-                for j in range(start + thread_id, loop, num_threads):
-                    target_index = argsort[j]
-                    if i < target_index:
+                for j in range(start, index_split_thread[thread_id + 1]):
+                    target_index = sort_indexes[j]
+                    if base_index < target_index:
                         target_head = sort_head[j]
                         if isclose(base_head, target_head):
                             target_thread_id = target_index % num_threads
@@ -2403,11 +2444,11 @@ def dim_reduction_7(TF_list, similar_num_list, progress_proxy):
                                     TF_list[target_thread_id, target_thread_index] = False
                         elif base_head < target_head:
                             break
-        progress_proxy.update(1)
+            progress_proxy.update(1)
 
 
 @njit(parallel=True, error_model="numpy")
-def dim_reduction_info_7(
+def dim_reduction_info_last(
     TF_list, similar_num_list, equation_list, base_eq_id_list, check_change_x_tot, check_change_x_ones
 ):
     int_nan = -100
@@ -2437,7 +2478,7 @@ def dim_reduction_info_7(
 
 
 @njit(parallel=True, error_model="numpy")
-def make_check_exist_info_7(check_exist_TF, similar_num_list, equation_list, base_eq_id_list, back_change_pattern):
+def make_check_exist_info_last(check_exist_TF, similar_num_list, equation_list, base_eq_id_list, back_change_pattern):
     int_nan = -100
     num_threads = check_exist_TF.shape[0]
     sum_check_exist = np.sum(check_exist_TF)
@@ -2462,7 +2503,7 @@ def make_check_exist_info_7(check_exist_TF, similar_num_list, equation_list, bas
 
 
 @njit(parallel=True, error_model="numpy")
-def check_exist_step1_7(similar_num_list, check_exist_num_arr, progress_proxy):
+def check_exist_step1_last(similar_num_list, check_exist_num_arr, progress_proxy):
     int_nan = -100
     head_saved_similar_num_list = similar_num_list[:, 0].copy()
     len_return = check_exist_num_arr.shape[0]
@@ -2482,7 +2523,7 @@ def check_exist_step1_7(similar_num_list, check_exist_num_arr, progress_proxy):
 
 
 @njit(parallel=True, error_model="numpy")
-def check_exist_step2_7(num_threads, check_exist_num_arr, progress_proxy):
+def check_exist_step2_last(num_threads, check_exist_num_arr, progress_proxy):
     int_nan = -100
     n_check_exist = check_exist_num_arr.shape[0]
     arg_index = np.argsort(check_exist_num_arr[:, 0])
@@ -2517,9 +2558,9 @@ def check_exist_step2_7(num_threads, check_exist_num_arr, progress_proxy):
     return same
 
 
-# @njit(error_model="numpy")
 @njit(parallel=True, error_model="numpy")
-def check_exist_step3_7(
+def check_exist_step3_last(
+    max_op,
     num_threads,
     random_x,
     arr_same,
@@ -2528,7 +2569,7 @@ def check_exist_step3_7(
     arr_back_change_pattern,
     progress_proxy,
 ):
-    max_op = 7
+    # max_op = 7
     dict_mask_x = make_dict_mask_x(max_op + 1)
     before_check_change_x_dict = cache_check_change_x_load(max_op - 1)
     arange = np.arange(check_exist_eq.shape[0])
@@ -2544,7 +2585,8 @@ def check_exist_step3_7(
     )
     for i in prange(loop):
         indexes = arange[arr_same == i]
-        mat_use, dict_check_change_x = sub_check_exist_step3_7(
+        mat_use, dict_check_change_x = sub_check_exist_step3_last(
+            max_op,
             num_threads,
             random_x,
             check_exist_eq,
@@ -2586,9 +2628,9 @@ def check_exist_step3_7(
     )
 
 
-# @njit(parallel=True, error_model="numpy")
 @njit(error_model="numpy")
-def sub_check_exist_step3_7(
+def sub_check_exist_step3_last(
+    max_op,
     num_threads,
     random_x,
     check_exist_eq,
@@ -2598,7 +2640,7 @@ def sub_check_exist_step3_7(
     before_check_change_x_dict,
     indexes,
 ):
-    max_op = 7
+    # max_op = 7
     print_counter = 0
     lim_print_counter = 100000000
     printed = False

@@ -429,8 +429,8 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
             saved_num[:] = False
             for j in range(mask.shape[0]):
                 one_TF = True
-                for k in use[:i]:
-                    if not TF[k, j]:
+                for k in range(i):
+                    if not TF[use[k], j]:
                         one_TF = False
                         break
                 if one_TF:
@@ -444,8 +444,8 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                 for j in range(mask.shape[0]):
                     if TF_mask_x[j]:
                         one_TF = True
-                        for k in use[:i]:
-                            if not TF[k, j]:
+                        for k in range(i):
+                            if not TF[use[k], j]:
                                 one_TF = False
                                 break
                         if one_TF:
