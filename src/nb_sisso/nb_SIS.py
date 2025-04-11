@@ -614,6 +614,7 @@ def sub_loop_non_op(
     last_index = 0
 
     border1, border2 = border_list[0]
+    min_index = min_index_list[0]
 
     if is_use_1:
         used_eq_arr[last_index] = 0
@@ -630,30 +631,29 @@ def sub_loop_non_op(
         last_index += 1
         if not np.isnan(score1):
             if score1 > border1:
-                save_score_list[0, min_index_list[0], 0] = score1
-                save_score_list[0, min_index_list[0], 1] = score2
-                save_eq_list[0, min_index_list[0], 0] = i
+                save_score_list[0, min_index, 0] = score1
+                save_score_list[0, min_index, 1] = score2
+                save_eq_list[0, min_index, 0] = i
                 min_num1, min_num2, min_index = argmin_and_min(save_score_list[0])
-                min_index_list[0] = min_index
-                if border1 > min_num1:
+                if min_num1 > border1:
                     border1 = min_num1
                     border2 = min_num2
-                elif border1 == min_num1:
-                    if border2 > min_num2:
+                elif min_num1 == border1:
+                    if min_num2 > border2:
                         border2 = min_num2
             elif score1 == border1:
                 if score2 > border2:
-                    save_score_list[0, min_index_list[0], 0] = score1
-                    save_score_list[0, min_index_list[0], 1] = score2
-                    save_eq_list[0, min_index_list[0], 0] = i
+                    save_score_list[0, min_index, 0] = score1
+                    save_score_list[0, min_index, 1] = score2
+                    save_eq_list[0, min_index, 0] = i
                     min_num1, min_num2, min_index = argmin_and_min(save_score_list[0])
-                    min_index_list[0] = min_index
-                    if border1 > min_num1:
-                        border1 = min_num1
+                if min_num1 > border1:
+                    border1 = min_num1
+                    border2 = min_num2
+                elif min_num1 == border1:
+                    if min_num2 > border2:
                         border2 = min_num2
-                    elif border1 == min_num1:
-                        if border2 > min_num2:
-                            border2 = min_num2
+    min_index_list[0] = min_index
     border_list[0, 0] = border1
     border_list[0, 1] = border2
     used_eq_dict[0] = {0: used_eq_arr[:last_index]}
@@ -810,11 +810,11 @@ def sub_loop_binary_op(
                                                     score_list[min_index, 1] = score2
                                                     eq_list[min_index, : 2 * n_op + 1] = equation
                                                     min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                                    if border1 > min_num1:
+                                                    if min_num1 > border1:
                                                         border1 = min_num1
                                                         border2 = min_num2
-                                                    elif border1 == min_num1:
-                                                        if border2 > min_num2:
+                                                    elif min_num1 == border1:
+                                                        if min_num2 > border2:
                                                             border2 = min_num2
                                                 elif score1 == border1:
                                                     if score2 > border2:
@@ -822,11 +822,11 @@ def sub_loop_binary_op(
                                                         score_list[min_index, 1] = score2
                                                         eq_list[min_index, : 2 * n_op + 1] = equation
                                                         min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                                        if border1 > min_num1:
+                                                        if min_num1 > border1:
                                                             border1 = min_num1
                                                             border2 = min_num2
-                                                        elif border1 == min_num1:
-                                                            if border2 > min_num2:
+                                                        elif min_num1 == border1:
+                                                            if min_num2 > border2:
                                                                 border2 = min_num2
                         progress.update(1)
                 save_score_list[thread_id] = score_list
@@ -1037,11 +1037,11 @@ def sub_loop_unary_op(
                                     score_list[min_index, 1] = score2
                                     eq_list[min_index, : 2 * n_op + 1] = equation
                                     min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                    if border1 > min_num1:
+                                    if min_num1 > border1:
                                         border1 = min_num1
                                         border2 = min_num2
-                                    elif border1 == min_num1:
-                                        if border2 > min_num2:
+                                    elif min_num1 == border1:
+                                        if min_num2 > border2:
                                             border2 = min_num2
                                 elif score1 == border1:
                                     if score2 > border2:
@@ -1049,11 +1049,11 @@ def sub_loop_unary_op(
                                         score_list[min_index, 1] = score2
                                         eq_list[min_index, : 2 * n_op + 1] = equation
                                         min_num1, min_num2, min_index = argmin_and_min(score_list)
-                                        if border1 > min_num1:
+                                        if min_num1 > border1:
                                             border1 = min_num1
                                             border2 = min_num2
-                                        elif border1 == min_num1:
-                                            if border2 > min_num2:
+                                        elif min_num1 == border1:
+                                            if min_num2 > border2:
                                                 border2 = min_num2
                 progress.update(1)
             save_score_list[thread_id] = score_list

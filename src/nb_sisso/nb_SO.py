@@ -349,11 +349,11 @@ def sub_SO_loop(
                     score_list[min_index, 1] = score2
                     index_list[min_index] = index_arr
                     min_num1, min_num2, min_index = argmin_and_min(score_list)
-                    if border1 > min_num1:
+                    if min_num1 > border1:
                         border1 = min_num1
                         border2 = min_num2
-                    elif border1 == min_num1:
-                        if border2 > min_num2:
+                    elif min_num1 == border1:
+                        if min_num2 > border2:
                             border2 = min_num2
                 elif score1 == border1:
                     if score2 > border2:
@@ -361,11 +361,11 @@ def sub_SO_loop(
                         score_list[min_index, 1] = score2
                         index_list[min_index] = index_arr
                         min_num1, min_num2, min_index = argmin_and_min(score_list)
-                        if border1 > min_num1:
+                        if min_num1 > border1:
                             border1 = min_num1
                             border2 = min_num2
-                        elif border1 == min_num1:
-                            if border2 > min_num2:
+                        elif min_num1 == border1:
+                            if min_num2 > border2:
                                 border2 = min_num2
             conunter[thread_id] += num_threads
             progress_proxy.update(1)

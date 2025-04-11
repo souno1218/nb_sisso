@@ -1109,7 +1109,6 @@ def dim_reduction(TF_list, similar_num_list, need_calc_list, progress_proxy):
     int_nan = -100
     num_threads = similar_num_list.shape[0]
     loop = np.sum(TF_list)
-    # loop = num_threads * similar_num_list.shape[1]
     head = np.empty((loop), dtype="float64")
     indexes = np.empty((loop), dtype="int64")
     n = 0
