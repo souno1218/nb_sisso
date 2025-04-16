@@ -472,17 +472,7 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                         return_dict[n] = check_pattern[use[save_use]].copy()
                         dict_saved_num[n] = saved_num.copy()
                         n += 1
-            done_plus = False
-            for j in range(i - 1, -1, -1):
-                if use[j] != len_check_pattern - (i - j):
-                    use[j] += 1
-                    done_plus = True
-                    break
-                else:
-                    for k in range(j - 1, -1, -1):
-                        if use[k] != len_check_pattern - (i - k):
-                            use[j] = use[k] + 1 + (j - k)
-                            break
+            done_plus = update_combination(use[:i], len_check_pattern)
             if not done_plus:
                 break
         if n != 0:
@@ -633,3 +623,37 @@ def del_concatenate(a, b):
     del a, b
     gc.collect()
     return return_arr
+
+
+@njit(error_model="numpy")
+def update_combination(use, n):
+    r = use.shape[0]
+    if use[r - 1] != n - 1:
+        use[r - 1] += 1
+        return True
+    else:
+        for i in range(r - 2, -1, -1):
+            if use[i] != n - (r - i):
+                use[i] += 1
+                if i != r - 2:
+                    for j in range(1, r - i):
+                        use[i + j] = use[i] + j
+                else:
+                    use[i + 1] = use[i] + 1
+                return True
+        return False
+
+
+@njit(error_model="numpy")
+def update_all_pattern(use, patterns):
+    r = use.shape[0]
+    if use[r - 1] != patterns[r - 1] - 1:
+        use[r - 1] += 1
+        return True
+    else:
+        for i in range(r - 2, -1, -1):
+            if use[i] != patterns[i] - 1:
+                use[i] += 1
+                use[i + 1 :] = 0
+                return True
+        return False

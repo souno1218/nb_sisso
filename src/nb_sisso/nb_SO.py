@@ -343,7 +343,7 @@ def sub_SO_loop(
                 for j, k in enumerate(index_arr):
                     selected_X[t, j] = arr_x[t, k, arr_which_arr_to_choose_from[j]]
             score1, score2 = model_score(selected_X, y)
-            if not np.isnan(score1):
+            if not (np.isnan(score1) or np.isnan(score2)):
                 if score1 > border1:
                     score_list[min_index, 0] = score1
                     score_list[min_index, 1] = score2

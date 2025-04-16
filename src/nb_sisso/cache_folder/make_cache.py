@@ -294,7 +294,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
 
             logger.info(f"      dim_reduction")
             logger.info(f"         using Memory size =  {str_using_mem()}")
-            how_loop = np.sum(TF_list)
+            how_loop = int(np.sum(TF_list))
             mem_size_per_1data = 8  # Byte  # head_similar_num
             size_arr_for_mem = np.sum(TF_list)
             mem_size = ((mem_size_per_1data * size_arr_for_mem) // 100000) / 10
@@ -619,7 +619,7 @@ def make_unique_equations(max_op, num_threads, random_x, before_similar_num_list
 
             logger.info(f"      dim_reduction")
             logger.info(f"         using Memory size =  {str_using_mem()}")
-            how_loop = np.sum(TF_list)
+            how_loop = int(np.sum(TF_list))
             mem_size_per_1data = 8  # Byte  # head_similar_num
             mem_size = ((mem_size_per_1data * np.sum(TF_list)) // 100000) / 10
             size_arr_for_mem = np.sum(TF_list)
@@ -1562,6 +1562,8 @@ def sub_check_exist_step3(
         if same_eq_shape_S[j] == int_nan:
             same_eq_shape_S[j] = c
             c += 1
+    len_n_same_eq_shape_S = c
+
     same_eq_shape_L = np.full((indexes.shape[0]), int_nan, dtype="int64")
     c = 0
     for j in range(indexes.shape[0]):
@@ -1680,8 +1682,57 @@ def sub_check_exist_step3(
                 mat_use[i] = int_nan
             else:
                 break
+    if not np.any(mat_use[:, 0, 0] != int_nan):
+        mat_use = np.full((len_n_same_eq_shape_S, indexes.shape[0], 2), int_nan, dtype="int64")
+        arr_coverd = np.empty(len_cache_for_mask_x, dtype="bool")
+        for i in range(len_n_same_eq_shape_S):
+            selected_indexes = arange[same_eq_shape_S == i]
+            len_mat_n_covered_num = 0
+            for j in selected_indexes:
+                len_mat_n_covered_num += patterns[j]
+            base_mat_n_covered_num = np.empty((len_mat_n_covered_num, 3), dtype="int64")
+            c_mat_n_covered_num = 0
+            for j in selected_indexes:
+                for k in range(patterns[j]):
+                    base_mat_n_covered_num[c_mat_n_covered_num, 0] = j
+                    base_mat_n_covered_num[c_mat_n_covered_num, 1] = k
+                    base_mat_n_covered_num[c_mat_n_covered_num, 2] = np.sum(mat_covered_num[j, k])
+                    c_mat_n_covered_num += 1
+            mat_n_covered_num = np.empty((len_mat_n_covered_num, 3), dtype="int64")
+            c_mat_n_covered_num = 0
+            for j in range(np.max(base_mat_n_covered_num[:, 2]), -1, -1):
+                same_n_covered_num_indexes = np.arange(len_mat_n_covered_num)[base_mat_n_covered_num[:, 2] == j]
+                mat_n_covered_num[c_mat_n_covered_num : c_mat_n_covered_num + same_n_covered_num_indexes.shape[0]] = (
+                    base_mat_n_covered_num[same_n_covered_num_indexes]
+                )
+                c_mat_n_covered_num += same_n_covered_num_indexes.shape[0]
+            for start_index in range(len_mat_n_covered_num):
+                arr_coverd[:] = mat_covered_num[mat_n_covered_num[start_index, 0], mat_n_covered_num[start_index, 1]]
+                mat_use[i, 0, 0] = mat_n_covered_num[start_index, 0]
+                mat_use[i, 0, 1] = mat_n_covered_num[start_index, 1]
+                c_mat_use = 1
+                for j in range(start_index + 1, len_mat_n_covered_num):
+                    if np.all(arr_coverd):
+                        break
+                    if not mat_n_covered_num[j, 0] in mat_use[i, :c_mat_use, 0]:
+                        for k in range(len_cache_for_mask_x):
+                            if arr_coverd[k]:
+                                if mat_covered_num[mat_n_covered_num[j, 0], mat_n_covered_num[j, 1], k]:
+                                    break
+                        else:
+                            for k in range(len_cache_for_mask_x):
+                                if not arr_coverd[k]:
+                                    if mat_covered_num[mat_n_covered_num[j, 0], mat_n_covered_num[j, 1], k]:
+                                        arr_coverd[k] = True
+                            mat_use[i, c_mat_use, 0] = mat_n_covered_num[j, 0]
+                            mat_use[i, c_mat_use, 1] = mat_n_covered_num[j, 1]
+                            c_mat_use += 1
+                if not np.all(arr_coverd):
+                    mat_use[i] = int_nan
+                else:
+                    break
     if np.any(mat_use[:, 0, 0] != int_nan):
-        found_index = np.arange(len_n_same_eq_shape_L)[mat_use[:, 0, 0] != int_nan]
+        found_index = np.arange(mat_use.shape[0])[mat_use[:, 0, 0] != int_nan]
         use_index = found_index[0]
         n_use = np.sum(mat_use[use_index, :, 0] != int_nan)
         for i in found_index[1:]:
@@ -1764,30 +1815,13 @@ def sub_check_exist_step3(
                             norm_check = True
                             break
                         else:
-                            done_plus_one = False
-                            for l in range(k - 1, -1, -1):
-                                if calc_pattern[l] != norm_patterns[calc[l]] - 1:
-                                    calc_pattern[l] += 1
-                                    done_plus_one = True
-                                    break
-                                else:
-                                    calc_pattern[l] = 0
+                            done_plus_one = update_all_pattern(calc_pattern[:k], norm_patterns[calc[:k]])
                             if not done_plus_one:
                                 break
                     if norm_check:
                         break
                     else:
-                        done_plus_one = False
-                        for l in range(k - 1, -1, -1):
-                            if calc[l] != n_use - (k - l):
-                                calc[l] += 1
-                                done_plus_one = True
-                                break
-                            else:
-                                for m in range(l - 1, -1, -1):
-                                    if calc[m] != n_use - (k - m):
-                                        calc[l] = calc[m] + 1 + (l - m)
-                                        break
+                        done_plus_one = update_combination(calc[:k], n_use)
                         if not done_plus_one:
                             break
                 if norm_check:
@@ -1868,14 +1902,9 @@ def sub_check_exist_step3(
                                     one_found = True
                                     break
                                 else:
-                                    done_plus_one = False
-                                    for l in range(i - 1, -1, -1):
-                                        if use_pattern[l] != patterns[selected_indexes[use[l]]] - 1:
-                                            use_pattern[l] += 1
-                                            done_plus_one = True
-                                            break
-                                        else:
-                                            use_pattern[l] = 0
+                                    done_plus_one = update_all_pattern(
+                                        use_pattern[:i], patterns[selected_indexes[use[:i]]]
+                                    )
                                     if not done_plus_one:
                                         break
                     if one_found:
@@ -1883,17 +1912,7 @@ def sub_check_exist_step3(
                     else:
                         tot_done_plus = True
                         for _ in range(num_threads):
-                            done_plus = False
-                            for l in range(i - 1, -1, -1):
-                                if use[l] != n_selected_indexes - (i - l):
-                                    use[l] += 1
-                                    done_plus = True
-                                    break
-                                else:
-                                    for m in range(l - 1, -1, -1):
-                                        if use[m] != n_selected_indexes - (i - m):
-                                            use[l] = use[m] + 1 + (l - m)
-                                            break
+                            done_plus = update_combination(use[:i], n_selected_indexes)
                             if not done_plus:
                                 tot_done_plus = False
                                 break
@@ -1981,30 +2000,13 @@ def sub_check_exist_step3(
                             norm_check = True
                             break
                         else:
-                            done_plus_one = False
-                            for l in range(k - 1, -1, -1):
-                                if calc_pattern[l] != norm_patterns[calc[l]] - 1:
-                                    calc_pattern[l] += 1
-                                    done_plus_one = True
-                                    break
-                                else:
-                                    calc_pattern[l] = 0
+                            done_plus_one = update_all_pattern(calc_pattern[:k], norm_patterns[calc[:k]])
                             if not done_plus_one:
                                 break
                     if norm_check:
                         break
                     else:
-                        done_plus_one = False
-                        for l in range(k - 1, -1, -1):
-                            if calc[l] != n_use - (k - l):
-                                calc[l] += 1
-                                done_plus_one = True
-                                break
-                            else:
-                                for m in range(l - 1, -1, -1):
-                                    if calc[m] != n_use - (k - m):
-                                        calc[l] = calc[m] + 1 + (l - m)
-                                        break
+                        done_plus_one = update_combination(calc[:k], n_use)
                         if not done_plus_one:
                             break
                 if norm_check:
@@ -2764,6 +2766,7 @@ def sub_check_exist_step3_last(
         if same_eq_shape_S[j] == int_nan:
             same_eq_shape_S[j] = c
             c += 1
+    len_n_same_eq_shape_S = c
     same_eq_shape_L = np.full((indexes.shape[0]), int_nan, dtype="int64")
     c = 0
     for j in range(indexes.shape[0]):
@@ -2882,8 +2885,58 @@ def sub_check_exist_step3_last(
                 mat_use[i] = int_nan
             else:
                 break
+
+    if not np.any(mat_use[:, 0, 0] != int_nan):
+        mat_use = np.full((len_n_same_eq_shape_S, indexes.shape[0], 2), int_nan, dtype="int64")
+        arr_coverd = np.empty(len_norm_cache_for_mask_x, dtype="bool")
+        for i in range(len_n_same_eq_shape_S):
+            selected_indexes = arange[same_eq_shape_S == i]
+            len_mat_n_covered_num = 0
+            for j in selected_indexes:
+                len_mat_n_covered_num += patterns[j]
+            base_mat_n_covered_num = np.empty((len_mat_n_covered_num, 3), dtype="int64")
+            c_mat_n_covered_num = 0
+            for j in selected_indexes:
+                for k in range(patterns[j]):
+                    base_mat_n_covered_num[c_mat_n_covered_num, 0] = j
+                    base_mat_n_covered_num[c_mat_n_covered_num, 1] = k
+                    base_mat_n_covered_num[c_mat_n_covered_num, 2] = np.sum(mat_covered_num[j, k])
+                    c_mat_n_covered_num += 1
+            mat_n_covered_num = np.empty((len_mat_n_covered_num, 3), dtype="int64")
+            c_mat_n_covered_num = 0
+            for j in range(np.max(base_mat_n_covered_num[:, 2]), -1, -1):
+                same_n_covered_num_indexes = np.arange(len_mat_n_covered_num)[base_mat_n_covered_num[:, 2] == j]
+                mat_n_covered_num[c_mat_n_covered_num : c_mat_n_covered_num + same_n_covered_num_indexes.shape[0]] = (
+                    base_mat_n_covered_num[same_n_covered_num_indexes]
+                )
+                c_mat_n_covered_num += same_n_covered_num_indexes.shape[0]
+            for start_index in range(len_mat_n_covered_num):
+                arr_coverd[:] = mat_covered_num[mat_n_covered_num[start_index, 0], mat_n_covered_num[start_index, 1]]
+                mat_use[i, 0, 0] = mat_n_covered_num[start_index, 0]
+                mat_use[i, 0, 1] = mat_n_covered_num[start_index, 1]
+                c_mat_use = 1
+                for j in range(start_index + 1, len_mat_n_covered_num):
+                    if np.all(arr_coverd):
+                        break
+                    if not mat_n_covered_num[j, 0] in mat_use[i, :c_mat_use, 0]:
+                        for k in range(len_norm_cache_for_mask_x):
+                            if arr_coverd[k]:
+                                if mat_covered_num[mat_n_covered_num[j, 0], mat_n_covered_num[j, 1], k]:
+                                    break
+                        else:
+                            for k in range(len_norm_cache_for_mask_x):
+                                if not arr_coverd[k]:
+                                    if mat_covered_num[mat_n_covered_num[j, 0], mat_n_covered_num[j, 1], k]:
+                                        arr_coverd[k] = True
+                            mat_use[i, c_mat_use, 0] = mat_n_covered_num[j, 0]
+                            mat_use[i, c_mat_use, 1] = mat_n_covered_num[j, 1]
+                            c_mat_use += 1
+                if not np.all(arr_coverd):
+                    mat_use[i] = int_nan
+                else:
+                    break
     if np.any(mat_use[:, 0, 0] != int_nan):
-        found_index = np.arange(len_n_same_eq_shape_L)[mat_use[:, 0, 0] != int_nan]
+        found_index = np.arange(mat_use.shape[0])[mat_use[:, 0, 0] != int_nan]
         use_index = found_index[0]
         n_use = np.sum(mat_use[use_index, :, 0] != int_nan)
         for i in found_index[1:]:
@@ -2955,14 +3008,9 @@ def sub_check_exist_step3_last(
                                     one_found = True
                                     break
                                 else:
-                                    done_plus_one = False
-                                    for l in range(i - 1, -1, -1):
-                                        if use_pattern[l] != patterns[selected_indexes[use[l]]] - 1:
-                                            use_pattern[l] += 1
-                                            done_plus_one = True
-                                            break
-                                        else:
-                                            use_pattern[l] = 0
+                                    done_plus_one = update_all_pattern(
+                                        use_pattern[:i], patterns[selected_indexes[use[:i]]]
+                                    )
                                     if not done_plus_one:
                                         break
                     if one_found:
@@ -2970,17 +3018,7 @@ def sub_check_exist_step3_last(
                     else:
                         tot_done_plus = True
                         for _ in range(num_threads):
-                            done_plus = False
-                            for l in range(i - 1, -1, -1):
-                                if use[l] != n_selected_indexes - (i - l):
-                                    use[l] += 1
-                                    done_plus = True
-                                    break
-                                else:
-                                    for m in range(l - 1, -1, -1):
-                                        if use[m] != n_selected_indexes - (i - m):
-                                            use[l] = use[m] + 1 + (l - m)
-                                            break
+                            done_plus = update_combination(use[:i], n_selected_indexes)
                             if not done_plus:
                                 tot_done_plus = False
                                 break
