@@ -392,13 +392,14 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
     max_same_arr = np.max(same_arr)
     unique = np.unique(same_arr[TF_mask_x])
     all_covered = unique.shape[0] == max_same_arr + 1
-    if same_arr[TF_mask_x].shape[0] == unique.shape[0]:
-        return True, all_covered, np.empty((1, 0, 2), dtype="int8")
+    # if same_arr[TF_mask_x].shape[0] == unique.shape[0]:
+    #     return True, all_covered, np.empty((1, 0, 2), dtype="int8")
     len_arr = mask.shape[1]
     TF = np.empty(((len_arr - 2) * (len_arr - 1), mask.shape[0]), dtype="bool")
     check_pattern = np.empty(((len_arr - 2) * (len_arr - 1), 2), dtype="int8")
     n = 0
     saved_num = np.empty((max_same_arr + 1), dtype="bool")
+    saved_num_for_TF_mask_x = np.empty((max_same_arr + 1), dtype="bool")
     for i in range(1, len_arr):
         for j in range(1, len_arr):
             if i != j:
@@ -427,6 +428,8 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
             use[j] = j
         while True:
             saved_num[:] = False
+            saved_num_for_TF_mask_x[:] = False
+            check_TF_mask_x = True
             for j in range(mask.shape[0]):
                 one_TF = True
                 for k in range(i):
@@ -439,26 +442,18 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                         break
                     else:
                         saved_num[same_arr[j]] = True
+                        if TF_mask_x[j]:
+                            saved_num_for_TF_mask_x[same_arr[j]] = True
             if np.all(saved_num):
-                saved_num[:] = False
-                for j in range(mask.shape[0]):
-                    if TF_mask_x[j]:
-                        one_TF = True
-                        for k in range(i):
-                            if not TF[use[k], j]:
-                                one_TF = False
-                                break
-                        if one_TF:
-                            saved_num[same_arr[j]] = True
-                if np.all(saved_num):
+                if np.all(saved_num_for_TF_mask_x):
                     return True, all_covered, np.expand_dims(check_pattern[use[:i]], axis=0)
-                elif np.any(saved_num):
+                elif np.any(saved_num_for_TF_mask_x):
                     is_unique = True
                     for j in range(n):
                         one_dict_saved_num = dict_saved_num[j]
                         sub_is_unique = False
-                        for k in range(saved_num.shape[0]):
-                            if one_dict_saved_num[k] != saved_num[k]:
+                        for k in range(saved_num_for_TF_mask_x.shape[0]):
+                            if one_dict_saved_num[k] != saved_num_for_TF_mask_x[k]:
                                 sub_is_unique = True
                                 break
                         if not sub_is_unique:
@@ -470,7 +465,7 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                             if not np.all(TF[use[j]][TF_mask_x]):
                                 save_use[j] = True
                         return_dict[n] = check_pattern[use[save_use]].copy()
-                        dict_saved_num[n] = saved_num.copy()
+                        dict_saved_num[n] = saved_num_for_TF_mask_x.copy()
                         n += 1
             done_plus = update_combination(use[:i], len_check_pattern)
             if not done_plus:
@@ -621,7 +616,7 @@ def str_using_mem():
 def del_concatenate(a, b):
     return_arr = np.concatenate((a, b))
     del a, b
-    gc.collect()
+    # gc.collect()
     return return_arr
 
 
