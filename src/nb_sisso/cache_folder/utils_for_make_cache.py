@@ -390,10 +390,9 @@ def count_True(arr, mode, border):
 def make_check_change_x(mask, same_arr, TF_mask_x):
     int_nan = -100
     max_same_arr = np.max(same_arr)
-    unique = np.unique(same_arr[TF_mask_x])
-    all_covered = unique.shape[0] == max_same_arr + 1
-    # if same_arr[TF_mask_x].shape[0] == unique.shape[0]:
-    #     return True, all_covered, np.empty((1, 0, 2), dtype="int8")
+    if same_arr.shape[0] == max_same_arr + 1:
+        all_covered = (np.sum(TF_mask_x) == max_same_arr + 1)
+        return True, all_covered, np.empty((1, 0, 2), dtype="int8")
     len_arr = mask.shape[1]
     TF = np.empty(((len_arr - 2) * (len_arr - 1), mask.shape[0]), dtype="bool")
     check_pattern = np.empty(((len_arr - 2) * (len_arr - 1), 2), dtype="int8")
@@ -446,7 +445,11 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
                             saved_num_for_TF_mask_x[same_arr[j]] = True
             if np.all(saved_num):
                 if np.all(saved_num_for_TF_mask_x):
-                    return True, all_covered, np.expand_dims(check_pattern[use[:i]], axis=0)
+                    save_use[:] = False
+                    for j in range(i):
+                        if not np.all(TF[use[j]][TF_mask_x]):
+                            save_use[j] = True
+                    return True, True, np.expand_dims(check_pattern[use[save_use]], axis=0)
                 elif np.any(saved_num_for_TF_mask_x):
                     is_unique = True
                     for j in range(n):
@@ -471,11 +474,19 @@ def make_check_change_x(mask, same_arr, TF_mask_x):
             if not done_plus:
                 break
         if n != 0:
-            return_arr = np.full((n, return_len, 2), int_nan, dtype="int8")
+            n_tot_calc = np.empty((n), dtype="int64")
             for j in range(n):
-                arr = return_dict[j]
-                return_arr[j, : arr.shape[0]] = arr
-            return True, False, return_arr
+                n_tot_calc[j] = np.sum(dict_saved_num[j])
+            return_arr = np.full((n, return_len, 2), int_nan, dtype="int8")
+            max_return_len = 0
+            count = 0
+            for j in range(np.max(n_tot_calc[:n]), -1, -1):
+                for k in np.arange(n)[n_tot_calc[:n] == j]:
+                    arr = return_dict[k]
+                    return_arr[count, : arr.shape[0]] = arr
+                    max_return_len = max(max_return_len, np.sum(arr[:, 0] != int_nan))
+                    count += 1
+            return True, False, return_arr[:, :max_return_len]
     return False, False, np.empty((0, return_len, 2), dtype="int8")
 
 

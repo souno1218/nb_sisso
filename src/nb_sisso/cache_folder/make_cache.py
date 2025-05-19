@@ -874,6 +874,7 @@ def make_unique_equations_thread(
         equation = np.full((2 * max_op + 1), int_nan, dtype="int8")
         cache_for_mask_x = np.zeros((tot_mask_x.shape[0], 2, random_x.shape[1]), dtype="float64")
         TF_mask_x = np.ones(tot_mask_x.shape[0], dtype="bool")
+        norm_TF_mask_x = np.ones(tot_mask_x.shape[0], dtype="bool")
         same_for_mask_x = np.zeros((tot_mask_x.shape[0]), dtype="int64")
         norm_same_for_mask_x = np.zeros((tot_mask_x.shape[0]), dtype="int64")
         counter = 0
@@ -992,26 +993,6 @@ def make_unique_equations_thread(
                                 is_save = False
                                 # print("drop : make_check_change_x")
                                 # print(equation)
-                                # print(same_for_mask_x[: mask_x.shape[0]])
-                                # print("arr_similar_num_head : ", arr_similar_num_head[: mask_x.shape[0]])
-                                # print(TF_mask_x[: mask_x.shape[0]])
-                                # print(can_use, all_covered, add_check_change_x)
-                            if can_use and all_covered:
-                                can_use_norm, one_eq_calc_check_change_x = make_check_change_x_norm(
-                                    mask_x,
-                                    norm_same_for_mask_x[: mask_x.shape[0]],
-                                    TF_mask_x[: mask_x.shape[0]],
-                                    add_check_change_x[0],
-                                )
-                                if not can_use_norm:
-                                    is_save = False
-                                    # print("drop : make_check_change_x_norm")
-                                    # print(equation)
-                                    # print(same_for_mask_x[: mask_x.shape[0]])
-                                    # print(norm_same_for_mask_x[: mask_x.shape[0]])
-                                    # print("arr_similar_num_head : ", arr_similar_num_head[: mask_x.shape[0]])
-                                    # print(TF_mask_x[: mask_x.shape[0]])
-                                    # print(can_use, all_covered, add_check_change_x, one_eq_calc_check_change_x)
                             if is_save:
                                 if not all_covered:
                                     check_exist_TF[thread_id, counter] = True
@@ -1054,9 +1035,25 @@ def make_unique_equations_thread(
                                     elif save_similar_num[0, 0] < head_saved_similar_num_list[j]:
                                         break
                                 if is_save:
+                                    for j in range(mask_x.shape[0]):
+                                        norm_is_calc = True
+                                        if not TF_mask_x[j]:
+                                            norm_is_calc = False
+                                        else:
+                                            for k in range(add_check_change_x.shape[1]):
+                                                if add_check_change_x[0, k, 0] == int_nan:
+                                                    break
+                                                if (
+                                                    mask_x[j, add_check_change_x[0, k, 0]]
+                                                    > mask_x[j, add_check_change_x[0, k, 1]]
+                                                ):
+                                                    norm_is_calc = False
+                                                    break
+                                        norm_TF_mask_x[j] = norm_is_calc
+                                    one_eq_calc_check_change_x = make_check_change_x(
+                                        mask_x, norm_same_for_mask_x[: mask_x.shape[0]], norm_TF_mask_x[: mask_x.shape[0]])[2][0]
                                     TF_list[thread_id, counter] = True
                                     save_similar_num_list[thread_id, counter] = save_similar_num
-                                    # head_save_similar_num_list[thread_id, counter] = save_similar_num[0, 0]
                                     save_need_calc_list[thread_id, counter] = is_calc
                                     save_equation_list[thread_id, counter] = equation
                                     save_base_eq_id_list[thread_id, counter, 0] = n_op1
@@ -1469,6 +1466,9 @@ def sub_check_exist_step3(
     n_max_mat_covered_num = np.empty((indexes.shape[0]), dtype="int64")
     n_min_mat_covered_num = np.empty((indexes.shape[0]), dtype="int64")
 
+
+    is_p = False
+
     for j in range(indexes.shape[0]):
         equation = check_exist_eq[indexes[j]]
         n_op1 = check_exist_id[indexes[j], 0]
@@ -1510,7 +1510,19 @@ def sub_check_exist_step3(
                         break
         same_num_index[j] = same_for_mask_x
         same_norm_num_index[j] = norm_same_for_mask_x
-        arr_check_change_x = make_check_change_x(mask_x, same_for_mask_x, TF_mask_x[j])[2]
+        _ , ssss, arr_check_change_x = make_check_change_x(mask_x, same_for_mask_x, TF_mask_x[j])# [2]
+        #if np.unique(same_num_index[j][TF_mask_x[j]]).shape[0] != np.sum(TF_mask_x[j]):
+            #is_p = True
+        #if np.sum(TF_mask_x[j]) == np.unique(same_for_mask_x[TF_mask_x[j]]).shape[0]:
+            #if np.any(arr_check_change_x != int_nan):
+            # if arr_check_change_x.shape[1] == 0 and (not ssss):
+                # if same_for_mask_x.shape[0] != np.max(same_for_mask_x) + 1:
+                # is_p = True
+                #txt_list = [[int(before_check_change_x1[k, 0]), int(before_check_change_x1[k, 1])] for k in range(len_before_check_change_x1)]
+                #txt_list += [[int(changed_before_check_change_x2[k, 0]), int(changed_before_check_change_x2[k, 1])] for k in range(len_before_check_change_x2)]
+                #print(equation, txt_list)
+                #for k in range(arr_check_change_x.shape[0]):
+                    #print([[int(l[0]), int(l[1])] for l in arr_check_change_x[k] if l[0] != int_nan])
         dict_check_change_x[j] = arr_check_change_x
         patterns[j] = arr_check_change_x.shape[0]
     n_all_pattern = np.max(patterns)
@@ -1630,16 +1642,10 @@ def sub_check_exist_step3(
                 arr_n_max[i] = j
                 break
 
-    mat_use = np.full((len_n_same_eq_shape_L, indexes.shape[0], 2), int_nan, dtype="int64")
+    mat_use = np.full((len_n_same_eq_shape_S, indexes.shape[0], 2), int_nan, dtype="int64")
     arr_coverd = np.empty(len_cache_for_mask_x, dtype="bool")
-    for i in range(len_n_same_eq_shape_L):
-        base_selected_indexes = arange[same_eq_shape_L == i]
-        selected_indexes = np.empty_like(base_selected_indexes)
-        n_selected_indexes = 0
-        for j in range(np.max(same_eq_shape_S[base_selected_indexes]) + 1):
-            TF = same_eq_shape_S[base_selected_indexes] == j
-            selected_indexes[n_selected_indexes : n_selected_indexes + np.sum(TF)] = base_selected_indexes[TF]
-            n_selected_indexes += np.sum(TF)
+    for i in range(len_n_same_eq_shape_S):
+        selected_indexes = arange[same_eq_shape_S == i]
         len_mat_n_covered_num = 0
         for j in selected_indexes:
             len_mat_n_covered_num += patterns[j]
@@ -1685,10 +1691,16 @@ def sub_check_exist_step3(
             else:
                 break
     if not np.any(mat_use[:, 0, 0] != int_nan):
-        mat_use = np.full((len_n_same_eq_shape_S, indexes.shape[0], 2), int_nan, dtype="int64")
+        mat_use = np.full((len_n_same_eq_shape_L, indexes.shape[0], 2), int_nan, dtype="int64")
         arr_coverd = np.empty(len_cache_for_mask_x, dtype="bool")
-        for i in range(len_n_same_eq_shape_S):
-            selected_indexes = arange[same_eq_shape_S == i]
+        for i in range(len_n_same_eq_shape_L):
+            base_selected_indexes = arange[same_eq_shape_L == i]
+            selected_indexes = np.empty_like(base_selected_indexes)
+            n_selected_indexes = 0
+            for j in range(np.max(same_eq_shape_S[base_selected_indexes]) + 1):
+                TF = same_eq_shape_S[base_selected_indexes] == j
+                selected_indexes[n_selected_indexes : n_selected_indexes + np.sum(TF)] = base_selected_indexes[TF]
+                n_selected_indexes += np.sum(TF)
             len_mat_n_covered_num = 0
             for j in selected_indexes:
                 len_mat_n_covered_num += patterns[j]
@@ -1757,6 +1769,8 @@ def sub_check_exist_step3(
                     if mask_x[k, check_change_x[l, 0]] > mask_x[k, check_change_x[l, 1]]:
                         norm_TF_mask_x[j, k] = False
                         break
+            #if np.unique(same_norm_num_index[j][norm_TF_mask_x[j]]).shape[0] != np.sum(norm_TF_mask_x[j]):
+            #    is_p = True
             arr_norm_check_change_x = make_check_change_x(mask_x, same_norm_num_index[j], norm_TF_mask_x[j])[2]
             dict_norm_check_change_x[j] = arr_norm_check_change_x
             norm_patterns[j] = arr_norm_check_change_x.shape[0]
@@ -1842,6 +1856,40 @@ def sub_check_exist_step3(
                     one_eq_calc_check_change_x = dict_norm_check_change_x[m][calc_pattern[m]]
                     _len = one_eq_calc_check_change_x.shape[0]
                     dict_one_eq_calc_check_change_x[return_mat_use[m, 0], :_len] = one_eq_calc_check_change_x
+        if is_p:
+            print("=======================================")
+            for k in range(indexes.shape[0]):
+                id = return_mat_use[k, 0]
+                id_2 = return_mat_use[k, 1]
+                if id == int_nan:
+                    break
+                equation = check_exist_eq[indexes[j]]
+                n_op1 = check_exist_id[indexes[id], 0]
+                id1 = check_exist_id[indexes[id], 1]
+                n_op2 = max_op - 1 - n_op1
+                id2 = check_exist_id[indexes[id], 2]
+                back_change_pattern = arr_back_change_pattern[indexes[id]]
+                before_check_change_x1 = before_check_change_x_dict[n_op1][id1]
+                before_check_change_x2 = before_check_change_x_dict[n_op2][id2]
+                changed_before_check_change_x2 = make_eq(before_check_change_x2, back_change_pattern)
+                len_before_check_change_x1 = count_True(before_check_change_x1[:, 0], 2, int_nan)  # 2 -> lambda x: x != border
+                len_before_check_change_x2 = count_True(
+                    changed_before_check_change_x2[:, 0], 2, int_nan
+                )  # 2 -> lambda x: x != border
+                txt_list = [[int(before_check_change_x1[l, 0]), int(before_check_change_x1[l, 1])] for l in range(len_before_check_change_x1)]
+                txt_list += [[int(changed_before_check_change_x2[l, 0]), int(changed_before_check_change_x2[l, 1])] for l in range(len_before_check_change_x2)]
+                print()
+                print("   id : ", id)
+                print("   eq : ", check_exist_eq[indexes[id]])
+                print("   same_eq_shape L, S : ", same_eq_shape_L[id], same_eq_shape_S[id])
+                print("   before_check_change_x : ", txt_list)
+                txt_list = [[int(l[0]), int(l[1])] for l in  dict_check_change_x[id][id_2] if l[0] != int_nan]
+                print("   add_check_change_x : ", txt_list)
+                print("   calc : ", k in calc)
+                txt_list = [[int(l[0]), int(l[1])] for l in dict_one_eq_calc_check_change_x[id] if l[0] != int_nan]
+                print("   one_eq_calc_check_change_x : ", txt_list)
+                print()
+            print("=======================================")
         return return_mat_use, dict_check_change_x, calc, dict_one_eq_calc_check_change_x
 
     print("not found aming")
@@ -2472,10 +2520,10 @@ def make_unique_equations_thread_last(
                             )
                             if not can_use_norm:
                                 is_calc = False
-                                # print("drop : make_check_change_x")
-                                # print(equation)
-                                # print(same_for_mask_x[: mask_x.shape[0]])
-                                # print("arr_similar_num_head : ", arr_similar_num_head[: mask_x.shape[0]])
+                                print("drop : make_check_change_x")
+                                print(equation)
+                                print(same_for_mask_x[: mask_x.shape[0]])
+                                print("arr_similar_num_head : ", arr_similar_num_head[: mask_x.shape[0]])
                                 # print(TF_mask_x[: mask_x.shape[0]])
                                 # print(can_use, all_covered, add_check_change_x)
                             if is_calc:
